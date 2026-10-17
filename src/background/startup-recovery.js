@@ -4,142 +4,133 @@
  */
 
 import { windowRegistry } from './window-registry.js';
-import { workspaceManager } from './workspace-manager.js';
-import { normalizeUrl, jaccardSimilarity } from '../shared/utils.js';
-import { windowOpener } from './window-opener.js';
+import { workspaceManager, snapshotWindow } from './workspace-manager.js';
+import { normalizeUrl, jaccardSimilarity, isNewTabUrl } from '../shared/utils.js';
 import { groupSync } from './group-sync.js';
 import { MESSAGE_TYPES } from '../shared/constants.js';
+
+export const MATCH_THRESHOLD = 0.5;
+// Brave restores windows (and their tabs) progressively; try again for late windows
+const PASS_DELAYS_MS = [1500, 5000];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function urlSet(urls) {
+  return new Set(urls.filter((u) => u && !isNewTabUrl(u)).map(normalizeUrl).filter(Boolean));
+}
+
+/**
+ * Pair windows to workspaces greedily by best overlap ("first match wins").
+ * Pure function so it can be tested directly.
+ */
+export function matchWindowsToWorkspaces(windows, workspaces, threshold = MATCH_THRESHOLD) {
+  const matches = [];
+  for (const win of windows) {
+    const winUrls = urlSet((win.tabs || []).map((t) => t.url || t.pendingUrl));
+    if (winUrls.size === 0) continue;
+    for (const ws of workspaces) {
+      const wsUrls = urlSet((ws.tabs || []).map((t) => t.url));
+      if (wsUrls.size === 0) continue;
+      const score = jaccardSimilarity(winUrls, wsUrls);
+      if (score >= threshold) matches.push({ winId: win.id, wsId: ws.id, score });
+    }
+  }
+
+  matches.sort((a, b) => b.score - a.score);
+  const usedWindows = new Set();
+  const usedWorkspaces = new Set();
+  const pairs = [];
+  for (const m of matches) {
+    if (usedWindows.has(m.winId) || usedWorkspaces.has(m.wsId)) continue;
+    usedWindows.add(m.winId);
+    usedWorkspaces.add(m.wsId);
+    pairs.push(m);
+  }
+  return pairs;
+}
 
 export const startupRecovery = {
   /**
    * Run startup recovery matching
    */
-  async runRecovery() {
-    // Check if recovery is enabled in settings
-    const state = await workspaceManager.getState();
-    if (!state.settings?.restoreOnStartup) {
-      console.log('startupRecovery: restoreOnStartup is disabled in settings.');
-      return;
+  async runRecovery({ delays = PASS_DELAYS_MS } = {}) {
+    const state = await workspaceManager.loadState();
+    if (!state.settings?.restoreOnStartup) return [];
+
+    const bound = [];
+    for (const delay of delays) {
+      await sleep(delay);
+      try {
+        bound.push(...(await this.runPass()));
+      } catch (err) {
+        console.warn('startupRecovery: Error during recovery', err);
+      }
     }
 
-    // Wait 1500ms to allow Brave's session restore to settle windows and tabs
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    try {
-      // Get all open windows with tabs populated
-      const windows = await chrome.windows.getAll({ populate: true, windowTypes: ['normal'] });
-      if (!windows || windows.length === 0) return;
-
-      const workspaces = Object.values(state.workspaces);
-      if (workspaces.length === 0) return;
-
-      // Check current session bindings (in case any exist already)
-      const existingBindings = await windowRegistry.getAllBindings();
-      const claimedWindows = new Set(Object.keys(existingBindings).map(Number));
-      const claimedWorkspaces = new Set(Object.values(existingBindings));
-
-      // Build normalized URL sets for open windows
-      const windowUrlSets = new Map();
-      for (const win of windows) {
-        if (claimedWindows.has(win.id)) continue;
-
-        const urls = new Set(
-          (win.tabs || [])
-            .map((t) => normalizeUrl(t.url || t.pendingUrl))
-            .filter((u) => u && !u.startsWith('newtab') && !u.startsWith('about:blank'))
-        );
-        windowUrlSets.set(win.id, urls);
-      }
-
-      // Build normalized URL sets for saved workspaces
-      const workspaceUrlSets = new Map();
-      for (const ws of workspaces) {
-        if (claimedWorkspaces.has(ws.id)) continue;
-
-        const urls = new Set(
-          (ws.tabs || [])
-            .map((t) => normalizeUrl(t.url))
-            .filter((u) => u && !u.startsWith('newtab') && !u.startsWith('about:blank'))
-        );
-        workspaceUrlSets.set(ws.id, urls);
-      }
-
-      // Calculate overlap scores between each candidate window and workspace
-      const matches = [];
-
-      for (const [winId, winUrls] of windowUrlSets.entries()) {
-        if (winUrls.size === 0) continue;
-
-        for (const [wsId, wsUrls] of workspaceUrlSets.entries()) {
-          if (wsUrls.size === 0) continue;
-
-          const score = jaccardSimilarity(winUrls, wsUrls);
-          if (score >= 0.6) {
-            matches.push({ winId, wsId, score });
-          }
-        }
-      }
-
-      // Sort matches descending by similarity score
-      matches.sort((a, b) => b.score - a.score);
-
-      // Greedily pair highest-scoring window and workspace ("first match wins")
-      const newlyBoundWindows = new Set();
-      const newlyBoundWorkspaces = new Set();
-
-      for (const match of matches) {
-        if (newlyBoundWindows.has(match.winId) || newlyBoundWorkspaces.has(match.wsId)) {
-          continue;
-        }
-
-        await windowRegistry.bind(match.winId, match.wsId);
-        newlyBoundWindows.add(match.winId);
-        newlyBoundWorkspaces.add(match.wsId);
-
-        // Re-attach persistent tab groups if native groups vanished on restart (Workona fix)
-        const ws = state.workspaces[match.wsId];
-        if (ws && ws.groups && ws.groups.length > 0 && chrome.tabGroups) {
-          try {
-            const liveGroups = await chrome.tabGroups.query({ windowId: match.winId });
-            if (!liveGroups || liveGroups.length === 0) {
-              const winTabs = await chrome.tabs.query({ windowId: match.winId });
-              const matchedTabs = [];
-              for (const wt of winTabs) {
-                const norm = normalizeUrl(wt.url || wt.pendingUrl);
-                const savedTab = (ws.tabs || []).find(
-                  (st) => normalizeUrl(st.url) === norm && st.groupId
-                );
-                if (savedTab) {
-                  matchedTabs.push({ id: wt.id, savedGroupId: savedTab.groupId });
-                }
-              }
-              if (matchedTabs.length > 0) {
-                await groupSync.restoreGroups(match.winId, ws.groups, matchedTabs);
-                console.log(`startupRecovery: Restored ${ws.groups.length} tab groups in Window ${match.winId}`);
-              }
-            }
-          } catch (groupErr) {
-            console.warn('startupRecovery: Could not restore tab groups:', groupErr);
-          }
-        }
-
-        // Update badge for this window
-        await windowOpener.updateToolbarBadge(match.winId, match.wsId);
-        console.log(`startupRecovery: Successfully rebound Window ${match.winId} to Workspace ${match.wsId} (overlap: ${(match.score * 100).toFixed(1)}%)`);
-      }
-
-      // Broadcast state update to any open UI
+    if (bound.length) {
       try {
-        chrome.runtime.sendMessage({ type: MESSAGE_TYPES.STATE_CHANGED }, () => {
-          if (chrome.runtime.lastError) {
-            // No UI active
-          }
-        });
+        chrome.runtime.sendMessage({ type: MESSAGE_TYPES.STATE_CHANGED })?.catch?.(() => {});
       } catch {
-        // Ignore
+        // No UI open
       }
+    }
+    return bound;
+  },
+
+  async runPass() {
+    const state = await workspaceManager.loadState();
+    const workspaces = Object.values(state.workspaces);
+    if (workspaces.length === 0) return [];
+
+    const windows = await chrome.windows.getAll({ populate: true, windowTypes: ['normal'] });
+    if (!windows || windows.length === 0) return [];
+
+    const bindings = await windowRegistry.getAllBindings();
+    const claimedWindows = new Set(Object.keys(bindings).map(Number));
+    const claimedWorkspaces = new Set(Object.values(bindings));
+
+    const pairs = matchWindowsToWorkspaces(
+      windows.filter((w) => !claimedWindows.has(w.id)),
+      workspaces.filter((ws) => !claimedWorkspaces.has(ws.id))
+    );
+
+    for (const pair of pairs) {
+      const ws = state.workspaces[pair.wsId];
+      await windowRegistry.bind(pair.winId, pair.wsId);
+      await this.restoreMissingGroups(pair.winId, ws);
+
+      // Seed live maps so persistent tab IDs stay stable from here on
+      const snap = await snapshotWindow(pair.winId, ws).catch(() => null);
+      if (snap) await windowRegistry.setLiveMaps(pair.wsId, snap.liveMaps);
+
+      console.log(`startupRecovery: Rebound window ${pair.winId} to "${ws.name}" (overlap ${(pair.score * 100).toFixed(0)}%)`);
+    }
+    return pairs;
+  },
+
+  /**
+   * Re-create tab groups when the browser restored the tabs but not their groups
+   */
+  async restoreMissingGroups(windowId, ws) {
+    if (!ws?.groups?.length || !chrome.tabGroups) return;
+    try {
+      const liveGroups = await chrome.tabGroups.query({ windowId });
+      if (liveGroups.length > 0) return;
+
+      const winTabs = await chrome.tabs.query({ windowId });
+      const pool = (ws.tabs || []).filter((st) => st.groupId);
+      const matched = [];
+      for (const wt of winTabs) {
+        const norm = normalizeUrl(wt.url || wt.pendingUrl);
+        const idx = pool.findIndex((st) => normalizeUrl(st.url) === norm);
+        if (idx !== -1) {
+          matched.push({ id: wt.id, savedGroupId: pool[idx].groupId, active: wt.active });
+          pool.splice(idx, 1);
+        }
+      }
+      if (matched.length) await groupSync.restoreGroups(windowId, ws.groups, matched);
     } catch (err) {
-      console.warn('startupRecovery: Error during recovery', err);
+      console.warn('startupRecovery: Could not restore tab groups:', err);
     }
   }
 };

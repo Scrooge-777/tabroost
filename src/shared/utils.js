@@ -1,5 +1,5 @@
 /**
- * Common utilities for Brave Workspaces
+ * Common utilities for Workspaces
  */
 
 /**
@@ -26,6 +26,19 @@ export function debounce(fn, delayMs) {
 }
 
 /**
+ * Serialize async tasks: each task starts only after the previous one settled.
+ * Used to make read-modify-write cycles on storage atomic within the worker.
+ */
+export function createLock() {
+  let tail = Promise.resolve();
+  return function withLock(task) {
+    const run = tail.then(task, task);
+    tail = run.catch(() => {});
+    return run;
+  };
+}
+
+/**
  * Deep equality check for tab/workspace data comparison
  */
 export function deepEqual(a, b) {
@@ -46,22 +59,22 @@ export function deepEqual(a, b) {
 }
 
 /**
- * Get favicon URL with Brave Shields fallback
- * Uses standard MV3 chrome-extension favicon URL if available
+ * Get a favicon URL, falling back to Chromium's _favicon API (needs the "favicon"
+ * permission) when the page favicon is missing or was stripped by Brave Shields.
  */
 export function getFaviconUrl(url, pageFavIconUrl = null) {
-  if (pageFavIconUrl && !pageFavIconUrl.startsWith('chrome://')) {
+  if (pageFavIconUrl && !pageFavIconUrl.startsWith('chrome://') && !pageFavIconUrl.startsWith('brave://')) {
     return pageFavIconUrl;
   }
 
   if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
     try {
-      const runtimeId = chrome?.runtime?.id;
-      if (runtimeId) {
-        return `chrome-extension://${runtimeId}/_favicon/?pageUrl=${encodeURIComponent(url)}&size=32`;
+      const base = chrome?.runtime?.getURL?.('/_favicon/');
+      if (base) {
+        return `${base}?pageUrl=${encodeURIComponent(url)}&size=32`;
       }
     } catch {
-      // Fallback if runtime id unavailable
+      // Runtime unavailable (e.g. tests)
     }
   }
 
@@ -72,16 +85,16 @@ export function getFaviconUrl(url, pageFavIconUrl = null) {
  * Generate a letter or initial for fallback favicon tile
  */
 export function getFallbackTileLetter(title, url) {
-  if (title && title.trim()) {
-    return title.trim().charAt(0).toUpperCase();
-  }
   if (url) {
     try {
       const hostname = new URL(url).hostname.replace(/^www\./, '');
-      return hostname.charAt(0).toUpperCase();
+      if (hostname) return hostname.charAt(0).toUpperCase();
     } catch {
       // Ignore URL parse error
     }
+  }
+  if (title && title.trim()) {
+    return title.trim().charAt(0).toUpperCase();
   }
   return 'W';
 }
@@ -106,7 +119,7 @@ export function normalizeUrl(url) {
  */
 export function jaccardSimilarity(setA, setB) {
   if (!setA || !setB || setA.size === 0 || setB.size === 0) return 0;
-  
+
   let intersectionSize = 0;
   for (const item of setA) {
     if (setB.has(item)) {
@@ -130,23 +143,67 @@ export function isRestrictedUrl(url) {
     lower.startsWith('chrome-extension://') ||
     lower.startsWith('edge://') ||
     lower.startsWith('about:') ||
-    lower.startsWith('view-source:')
+    lower.startsWith('view-source:') ||
+    lower.startsWith('file://') ||
+    lower.startsWith('javascript:') ||
+    lower.startsWith('data:')
   );
 }
 
+export function isNewTabUrl(url = '') {
+  const u = (url || '').toLowerCase();
+  return (
+    !u ||
+    u.startsWith('chrome://newtab') ||
+    u.startsWith('brave://newtab') ||
+    u.startsWith('edge://newtab') ||
+    u.startsWith('chrome://new-tab-page') ||
+    u === 'about:blank'
+  );
+}
+
+export const NEW_TAB_URL = 'chrome://newtab/';
+
 /**
- * Sanitize URL for window/tab restoration
+ * Sanitize URL for window/tab restoration.
+ * brave:// pages are aliases of chrome:// pages; tabs.create only accepts the latter.
+ * Schemes extensions can never open are replaced with the new tab page.
  */
 export function sanitizeRestoreUrl(url) {
-  if (!url) return 'chrome://newtab/';
-  // Allowed safe internal pages
-  if (url === 'chrome://newtab/' || url === 'brave://newtab/') {
-    return 'chrome://newtab/';
-  }
-  // If restricted internal page that might crash or fail tab create, handle safely
-  if (isRestrictedUrl(url)) {
-    // Return url as is, but callers should catch errors and fallback to newtab
-    return url;
+  if (!url || isNewTabUrl(url)) return NEW_TAB_URL;
+  const lower = url.toLowerCase();
+  if (lower.startsWith('brave://')) return 'chrome://' + url.slice('brave://'.length);
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('view-source:')) {
+    return NEW_TAB_URL;
   }
   return url;
+}
+
+/**
+ * Human friendly "time ago" string
+ */
+export function timeAgo(timestamp, now = Date.now()) {
+  if (!timestamp) return '';
+  const diff = Math.max(0, now - timestamp);
+  const min = 60 * 1000;
+  const hour = 60 * min;
+  const day = 24 * hour;
+  if (diff < min) return 'just now';
+  if (diff < hour) return `${Math.floor(diff / min)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+  if (diff < 30 * day) return `${Math.floor(diff / day)}d ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
+export function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+export function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

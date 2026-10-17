@@ -2,29 +2,40 @@
  * Storage keys and message constants for Workspaces
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const STORAGE_KEYS = {
   SCHEMA_VERSION: 'schemaVersion',
   WORKSPACES: 'workspaces',
   WORKSPACE_ORDER: 'workspaceOrder',
   SETTINGS: 'settings',
-  
+  BACKUPS: 'backups',
+
   // Session storage keys
   WINDOW_BINDINGS: 'windowBindings',
   ACTIVE_WORKSPACE_ID: 'activeWorkspaceId',
-  SUPPRESS_SYNC: 'suppressSync'
+  PREVIOUS_WORKSPACE_ID: 'previousWorkspaceId',
+  SUPPRESS_SYNC: 'suppressSync',
+  LIVE_MAPS: 'liveMaps'
 };
 
 export const DEFAULT_SETTINGS = {
-  closeWindowOnWorkspaceSwitch: false,
   restoreOnStartup: true,
+  closeWindowOnWorkspaceSwitch: false,
   confirmDelete: true,
+  sortOrder: 'manual', // 'manual' | 'recent'
+  showPagePill: false,
   accentBorder: false,
-  showTopLeftButton: true,
-  autoSyncNewTabs: true,
-  dragToGroupTabs: true
+  autoBackup: true
 };
+
+export const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
+
+export const MAX_BACKUPS = 10;
+export const BACKUP_ALARM = 'workspaces-auto-backup';
+export const BACKUP_INTERVAL_MINUTES = 60 * 6;
+
+export const PAGE_SCRIPT_ID = 'workspaces-page-indicator';
 
 export const MESSAGE_TYPES = {
   // Panel/Options -> Background Worker
@@ -33,12 +44,15 @@ export const MESSAGE_TYPES = {
   CREATE_FROM_CURRENT_WINDOW: 'CREATE_FROM_CURRENT_WINDOW',
   OPEN_WORKSPACE: 'OPEN_WORKSPACE',
   CLOSE_WORKSPACE: 'CLOSE_WORKSPACE',
+  UPDATE_WORKSPACE: 'UPDATE_WORKSPACE',
   RENAME_WORKSPACE: 'RENAME_WORKSPACE',
   RECOLOR_WORKSPACE: 'RECOLOR_WORKSPACE',
   DELETE_WORKSPACE: 'DELETE_WORKSPACE',
+  RESTORE_WORKSPACE: 'RESTORE_WORKSPACE',
   DUPLICATE_WORKSPACE: 'DUPLICATE_WORKSPACE',
   REORDER_WORKSPACES: 'REORDER_WORKSPACES',
   ADOPT_WINDOW: 'ADOPT_WINDOW',
+  SWITCH_TO_LAST: 'SWITCH_TO_LAST',
   MOVE_TAB_TO_WORKSPACE: 'MOVE_TAB_TO_WORKSPACE',
   CLOSE_TAB_IN_WORKSPACE: 'CLOSE_TAB_IN_WORKSPACE',
   OPEN_TAB_IN_WORKSPACE: 'OPEN_TAB_IN_WORKSPACE',
@@ -49,14 +63,33 @@ export const MESSAGE_TYPES = {
   UPDATE_TAB_GROUP: 'UPDATE_TAB_GROUP',
   ORGANIZE_TABS: 'ORGANIZE_TABS',
   GET_CURRENT_STATUS: 'GET_CURRENT_STATUS',
+  GET_PAGE_INDICATOR: 'GET_PAGE_INDICATOR',
   GET_SETTINGS: 'GET_SETTINGS',
   UPDATE_SETTINGS: 'UPDATE_SETTINGS',
+  SYNC_PAGE_FEATURES: 'SYNC_PAGE_FEATURES',
   EXPORT: 'EXPORT',
   IMPORT: 'IMPORT',
+  LIST_BACKUPS: 'LIST_BACKUPS',
+  CREATE_BACKUP: 'CREATE_BACKUP',
+  RESTORE_BACKUP: 'RESTORE_BACKUP',
   RESET_ALL: 'RESET_ALL',
   OPEN_SIDE_PANEL: 'OPEN_SIDE_PANEL',
 
   // Background Worker -> UI broadcast
   WORKSPACE_UPDATED: 'WORKSPACE_UPDATED',
-  STATE_CHANGED: 'STATE_CHANGED'
+  STATE_CHANGED: 'STATE_CHANGED',
+  TRIGGER_NEW_WORKSPACE_MODAL: 'TRIGGER_NEW_WORKSPACE_MODAL',
+  INDICATOR_REFRESH: 'INDICATOR_REFRESH',
+
+  // Flyout iframe -> content script (window.postMessage)
+  CLOSE_FLYOUT: 'CLOSE_WORKSPACES_FLYOUT'
 };
+
+/** Message types that are broadcasts, never requests for the router */
+export const BROADCAST_TYPES = new Set([
+  MESSAGE_TYPES.WORKSPACE_UPDATED,
+  MESSAGE_TYPES.STATE_CHANGED,
+  MESSAGE_TYPES.TRIGGER_NEW_WORKSPACE_MODAL,
+  MESSAGE_TYPES.INDICATOR_REFRESH,
+  MESSAGE_TYPES.CLOSE_FLYOUT
+]);

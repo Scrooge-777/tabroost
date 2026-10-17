@@ -1,28 +1,23 @@
 /**
- * Router — Handles runtime.onMessage commands from side panel, options, and content scripts
+ * Router — Handles runtime.onMessage commands from side panel, options, and page scripts
  */
 
-import { MESSAGE_TYPES, STORAGE_KEYS } from '../shared/constants.js';
+import { MESSAGE_TYPES, STORAGE_KEYS, BROADCAST_TYPES } from '../shared/constants.js';
 import { workspaceManager } from './workspace-manager.js';
 import { windowRegistry } from './window-registry.js';
 import { windowOpener } from './window-opener.js';
+import { backups } from './backups.js';
+import { pageFeatures } from './page-features.js';
 import { storage } from '../shared/storage.js';
-import { validateImportPayload } from '../shared/schema.js';
+import { validateImportPayload, sanitizeWorkspace } from '../shared/schema.js';
+import { generateId } from '../shared/utils.js';
 
 export function registerMessageRouter() {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // If message is missing or is an internal broadcast / UI event, do not handle here
-    const IGNORED_TYPES = [
-      MESSAGE_TYPES.WORKSPACE_UPDATED,
-      MESSAGE_TYPES.STATE_CHANGED,
-      'TRIGGER_NEW_WORKSPACE_MODAL',
-      'CLOSE_WORKSPACES_FLYOUT'
-    ];
-    if (!message || !message.type || IGNORED_TYPES.includes(message.type)) {
-      return false;
-    }
+    // Only accept messages from this extension's own pages and scripts
+    if (sender?.id && sender.id !== chrome.runtime.id) return false;
+    if (!message || !message.type || BROADCAST_TYPES.has(message.type)) return false;
 
-    // Handle message asynchronously
     handleMessage(message, sender)
       .then((data) => {
         try {
@@ -34,18 +29,18 @@ export function registerMessageRouter() {
       .catch((err) => {
         console.warn('router: Message handling error for', message?.type, err);
         try {
-          sendResponse({ success: false, error: err.message || String(err) });
+          sendResponse({ success: false, error: err?.message || String(err) });
         } catch {
           // Port closed
         }
       });
 
-    // Return true to keep message channel open for async sendResponse
+    // Keep the channel open for the async response
     return true;
   });
 }
 
-async function handleMessage(message, sender) {
+export async function handleMessage(message, sender = {}) {
   if (!message || !message.type) {
     throw new Error('Malformed message: missing type');
   }
@@ -53,24 +48,20 @@ async function handleMessage(message, sender) {
   switch (message.type) {
     case MESSAGE_TYPES.LIST_WORKSPACES: {
       await windowRegistry.cleanupStaleBindings();
-      return await workspaceManager.getState();
+      return workspaceManager.getState();
     }
 
-    case MESSAGE_TYPES.CREATE_WORKSPACE: {
-      const ws = await workspaceManager.createWorkspace({
+    case MESSAGE_TYPES.CREATE_WORKSPACE:
+      return workspaceManager.createWorkspace({
         name: message.name,
         color: message.color,
         icon: message.icon
       });
-      return ws;
-    }
 
     case MESSAGE_TYPES.CREATE_FROM_CURRENT_WINDOW: {
       const windowId = message.windowId || sender.tab?.windowId;
-      if (!windowId) {
-        throw new Error('Target window ID not specified');
-      }
-      return await workspaceManager.createFromCurrentWindow(windowId, message.name, message.color);
+      if (!windowId) throw new Error('Target window ID not specified');
+      return workspaceManager.createFromCurrentWindow(windowId, message.name, message.color, message.icon);
     }
 
     case MESSAGE_TYPES.OPEN_WORKSPACE: {
@@ -79,145 +70,141 @@ async function handleMessage(message, sender) {
     }
 
     case MESSAGE_TYPES.CLOSE_WORKSPACE: {
-      await windowOpener.closeWorkspace(message.id);
-      return { closed: true };
+      const closed = await windowOpener.closeWorkspace(message.id);
+      return { closed };
     }
 
-    case MESSAGE_TYPES.RENAME_WORKSPACE: {
-      return await workspaceManager.renameWorkspace(message.id, message.name);
-    }
+    case MESSAGE_TYPES.UPDATE_WORKSPACE:
+      return workspaceManager.updateWorkspace(message.id, {
+        name: message.name,
+        color: message.color,
+        icon: message.icon
+      });
 
-    case MESSAGE_TYPES.RECOLOR_WORKSPACE: {
-      return await workspaceManager.recolorWorkspace(message.id, message.color);
-    }
+    case MESSAGE_TYPES.RENAME_WORKSPACE:
+      return workspaceManager.renameWorkspace(message.id, message.name);
+
+    case MESSAGE_TYPES.RECOLOR_WORKSPACE:
+      return workspaceManager.recolorWorkspace(message.id, message.color);
 
     case MESSAGE_TYPES.DELETE_WORKSPACE: {
-      const deleted = await workspaceManager.deleteWorkspace(message.id);
-      return { deleted };
+      const removed = await workspaceManager.deleteWorkspace(message.id);
+      return { deleted: Boolean(removed), workspace: removed?.workspace || null, index: removed?.index ?? -1 };
     }
 
-    case MESSAGE_TYPES.DUPLICATE_WORKSPACE: {
-      return await workspaceManager.duplicateWorkspace(message.id);
-    }
+    case MESSAGE_TYPES.RESTORE_WORKSPACE:
+      return workspaceManager.restoreWorkspace(message.workspace, message.index);
 
-    case MESSAGE_TYPES.REORDER_WORKSPACES: {
-      return await workspaceManager.reorderWorkspaces(message.order);
-    }
+    case MESSAGE_TYPES.DUPLICATE_WORKSPACE:
+      return workspaceManager.duplicateWorkspace(message.id);
+
+    case MESSAGE_TYPES.REORDER_WORKSPACES:
+      return workspaceManager.reorderWorkspaces(message.order);
 
     case MESSAGE_TYPES.ADOPT_WINDOW: {
       const windowId = message.windowId || sender.tab?.windowId;
-      if (!windowId) {
-        throw new Error('Target window ID not specified');
-      }
-      return await workspaceManager.adoptWindow(windowId, message.workspaceId);
+      if (!windowId) throw new Error('Target window ID not specified');
+      return workspaceManager.adoptWindow(windowId, message.workspaceId);
     }
 
-    case MESSAGE_TYPES.MOVE_TAB_TO_WORKSPACE: {
-      await workspaceManager.moveTabToWorkspace(message.tabId, message.targetWorkspaceId);
-      return { moved: true };
+    case MESSAGE_TYPES.SWITCH_TO_LAST: {
+      const previous = await windowRegistry.getPreviousWorkspaceId();
+      const state = await workspaceManager.loadState();
+      if (!previous || !state.workspaces[previous]) return { switched: false };
+      await windowOpener.openWorkspace(previous);
+      return { switched: true, workspaceId: previous };
     }
 
-    case MESSAGE_TYPES.CLOSE_TAB_IN_WORKSPACE: {
-      await workspaceManager.closeTabInWorkspace(message.workspaceId, message.tabId);
-      return { closed: true };
+    case MESSAGE_TYPES.MOVE_TAB_TO_WORKSPACE:
+      return workspaceManager.moveTabToWorkspace(message.tabId, message.targetWorkspaceId, message.sourceWorkspaceId || null);
+
+    case MESSAGE_TYPES.CLOSE_TAB_IN_WORKSPACE:
+      return workspaceManager.closeTabInWorkspace(message.workspaceId, message.tabId);
+
+    case MESSAGE_TYPES.OPEN_TAB_IN_WORKSPACE: {
+      const winId = await windowOpener.openTabInWorkspace(message.workspaceId, message.tabId, message.url);
+      return { windowId: winId };
     }
 
-    case MESSAGE_TYPES.MERGE_TABS_INTO_GROUP: {
-      return await workspaceManager.mergeTabsIntoGroup({
+    case MESSAGE_TYPES.MERGE_TABS_INTO_GROUP:
+      return workspaceManager.mergeTabsIntoGroup({
         sourceWorkspaceId: message.sourceWorkspaceId,
         sourceTabId: message.sourceTabId,
         targetWorkspaceId: message.targetWorkspaceId,
         targetTabId: message.targetTabId
       });
-    }
 
     case MESSAGE_TYPES.ADD_TAB_TO_GROUP: {
-      return await workspaceManager.addTabToGroup({
+      if (message.sourceWorkspaceId && message.sourceWorkspaceId !== message.workspaceId) {
+        const moved = await workspaceManager.moveTabToWorkspace(message.tabId, message.workspaceId, message.sourceWorkspaceId);
+        return workspaceManager.addTabToGroup({ workspaceId: message.workspaceId, tabId: moved.tabId, groupId: message.groupId });
+      }
+      return workspaceManager.addTabToGroup({
         workspaceId: message.workspaceId,
         tabId: message.tabId,
         groupId: message.groupId
       });
     }
 
-    case MESSAGE_TYPES.REMOVE_TAB_FROM_GROUP: {
-      return await workspaceManager.removeTabFromGroup({
+    case MESSAGE_TYPES.REMOVE_TAB_FROM_GROUP:
+      return workspaceManager.removeTabFromGroup({
         workspaceId: message.workspaceId,
         tabId: message.tabId
       });
-    }
 
-    case MESSAGE_TYPES.UNGROUP_TABS: {
-      return await workspaceManager.ungroupTabs({
+    case MESSAGE_TYPES.UNGROUP_TABS:
+      return workspaceManager.ungroupTabs({
         workspaceId: message.workspaceId,
         groupId: message.groupId
       });
-    }
 
-    case MESSAGE_TYPES.UPDATE_TAB_GROUP: {
-      return await workspaceManager.updateTabGroup({
+    case MESSAGE_TYPES.UPDATE_TAB_GROUP:
+      return workspaceManager.updateTabGroup({
         workspaceId: message.workspaceId,
         groupId: message.groupId,
         title: message.title,
-        color: message.color
+        color: message.color,
+        collapsed: message.collapsed
       });
-    }
 
     case MESSAGE_TYPES.ORGANIZE_TABS: {
-      const windowId = message.windowId || sender.tab?.windowId;
-      return await workspaceManager.organizeTabs({ workspaceId: message.workspaceId, windowId });
-    }
-
-    case MESSAGE_TYPES.OPEN_TAB_IN_WORKSPACE: {
-      // Focus or open tab inside the workspace
-      const winId = await windowRegistry.getWindowForWorkspace(message.workspaceId);
-      if (winId !== null) {
-        await chrome.windows.update(winId, { focused: true });
-        if (message.tabId) {
-          const tabs = await chrome.tabs.query({ windowId: winId });
-          const target = tabs.find((t) => t.id === message.tabId || String(t.id) === String(message.tabId));
-          if (target) {
-            await chrome.tabs.update(target.id, { active: true });
-          } else if (message.url) {
-            await chrome.tabs.create({ windowId: winId, url: message.url, active: true });
-          }
-        }
-        return { windowId: winId };
-      } else {
-        // Workspace not open, open workspace and activate target tab
-        const newWinId = await windowOpener.openWorkspace(message.workspaceId, message.tabId);
-        return { windowId: newWinId };
-      }
+      const windowId = message.windowId || null;
+      return workspaceManager.organizeTabs({ workspaceId: message.workspaceId, windowId });
     }
 
     case MESSAGE_TYPES.GET_CURRENT_STATUS: {
-      const senderWindowId = message.windowId || sender.tab?.windowId;
+      const senderWindowId = message.windowId || sender.tab?.windowId || null;
       const bindings = await windowRegistry.getAllBindings();
-      const currentWsId = senderWindowId ? (bindings[String(senderWindowId)] || null) : null;
-      const activeWsId = await windowRegistry.getActiveWorkspaceId();
-
       return {
         windowId: senderWindowId,
-        currentWorkspaceId: currentWsId,
-        activeWorkspaceId: activeWsId,
+        currentWorkspaceId: senderWindowId ? bindings[String(senderWindowId)] || null : null,
+        activeWorkspaceId: await windowRegistry.getActiveWorkspaceId(),
+        previousWorkspaceId: await windowRegistry.getPreviousWorkspaceId(),
         bindings
       };
     }
 
+    case MESSAGE_TYPES.GET_PAGE_INDICATOR:
+      return pageFeatures.getIndicator(sender.tab?.windowId || message.windowId);
+
     case MESSAGE_TYPES.GET_SETTINGS: {
-      const state = await workspaceManager.getState();
+      const state = await workspaceManager.loadState();
       return state.settings;
     }
 
     case MESSAGE_TYPES.UPDATE_SETTINGS: {
-      const state = await workspaceManager.getState();
-      const updatedSettings = { ...state.settings, ...message.settings };
-      await storage.setLocal({ [STORAGE_KEYS.SETTINGS]: updatedSettings });
-      return updatedSettings;
+      const updated = await workspaceManager.updateSettings(message.settings || {});
+      await pageFeatures.sync().catch((err) => console.warn('router: page feature sync failed', err));
+      return updated;
     }
 
+    case MESSAGE_TYPES.SYNC_PAGE_FEATURES:
+      return pageFeatures.sync();
+
     case MESSAGE_TYPES.EXPORT: {
-      const state = await workspaceManager.getState();
+      const state = await workspaceManager.loadState();
       return {
+        app: 'workspaces',
         schemaVersion: state.schemaVersion,
         exportedAt: new Date().toISOString(),
         settings: state.settings,
@@ -228,21 +215,51 @@ async function handleMessage(message, sender) {
 
     case MESSAGE_TYPES.IMPORT: {
       const validated = validateImportPayload(message.payload);
-      await storage.setLocal({
-        [STORAGE_KEYS.SCHEMA_VERSION]: validated.schemaVersion,
-        [STORAGE_KEYS.SETTINGS]: validated.settings,
-        [STORAGE_KEYS.WORKSPACES]: validated.workspaces,
-        [STORAGE_KEYS.WORKSPACE_ORDER]: validated.workspaceOrder
+      await backups.create('before-import');
+      const mode = message.mode === 'replace' ? 'replace' : 'merge';
+
+      const count = await workspaceManager.mutate((state) => {
+        if (mode === 'replace') {
+          state.workspaces = validated.workspaces;
+          state.workspaceOrder = validated.workspaceOrder;
+          return validated.workspaceOrder.length;
+        }
+        // Merge: imported workspaces are added; ID clashes get fresh IDs
+        let added = 0;
+        for (const id of validated.workspaceOrder) {
+          const ws = sanitizeWorkspace(validated.workspaces[id], id);
+          if (state.workspaces[ws.id]) ws.id = generateId('ws');
+          state.workspaces[ws.id] = ws;
+          state.workspaceOrder.push(ws.id);
+          added++;
+        }
+        return added;
       });
-      return { success: true, count: Object.keys(validated.workspaces).length };
+
+      if (mode === 'replace') {
+        await storage.setLocal({ [STORAGE_KEYS.SETTINGS]: validated.settings });
+      }
+      return { success: true, count, mode };
     }
 
+    case MESSAGE_TYPES.LIST_BACKUPS:
+      return backups.list();
+
+    case MESSAGE_TYPES.CREATE_BACKUP:
+      return { id: await backups.create('manual') };
+
+    case MESSAGE_TYPES.RESTORE_BACKUP:
+      return backups.restore(message.id);
+
     case MESSAGE_TYPES.RESET_ALL: {
+      await backups.create('before-reset');
+      const kept = await storage.getLocal(STORAGE_KEYS.BACKUPS);
       await storage.clearLocal();
       await storage.clearSession();
-      // Reseed defaults
-      const seeded = await workspaceManager.getState();
-      return { reset: true, state: seeded };
+      // Backups survive a reset so it can be undone from Settings
+      if (kept[STORAGE_KEYS.BACKUPS]) await storage.setLocal({ [STORAGE_KEYS.BACKUPS]: kept[STORAGE_KEYS.BACKUPS] });
+      await pageFeatures.sync().catch(() => {});
+      return { reset: true, state: await workspaceManager.getState() };
     }
 
     case MESSAGE_TYPES.OPEN_SIDE_PANEL: {
@@ -259,7 +276,6 @@ async function handleMessage(message, sender) {
     }
 
     default:
-      console.warn(`router: Unrecognized message type: ${message.type}`);
-      return null;
+      throw new Error(`Unrecognized message type: ${message.type}`);
   }
 }

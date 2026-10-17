@@ -6,8 +6,40 @@ import { windowRegistry } from './window-registry.js';
 import { workspaceManager } from './workspace-manager.js';
 import { groupSync } from './group-sync.js';
 import { tabSync } from './tab-sync.js';
-import { sanitizeRestoreUrl, isRestrictedUrl } from '../shared/utils.js';
-import { getColor } from '../shared/colors.js';
+import { sanitizeRestoreUrl, NEW_TAB_URL } from '../shared/utils.js';
+
+async function createWindowFor(ws, firstUrl) {
+  const props = { url: firstUrl, focused: true };
+  const info = ws.window;
+  if (info?.state === 'maximized' || info?.state === 'fullscreen') {
+    props.state = info.state;
+  } else if (info && info.width && info.height) {
+    Object.assign(props, { width: info.width, height: info.height });
+    if (info.left !== null && info.top !== null) Object.assign(props, { left: info.left, top: info.top });
+  }
+
+  try {
+    return await chrome.windows.create(props);
+  } catch (err) {
+    // Off-screen bounds or a URL the browser refuses: fall back to a plain window
+    console.warn('windowOpener: window create failed, retrying plain', err);
+    return chrome.windows.create({ url: firstUrl === NEW_TAB_URL ? NEW_TAB_URL : firstUrl, focused: true })
+      .catch(() => chrome.windows.create({ url: NEW_TAB_URL, focused: true }));
+  }
+}
+
+async function createTabSafely(props) {
+  try {
+    return await chrome.tabs.create(props);
+  } catch (err) {
+    console.warn(`windowOpener: could not open ${props.url}, using new tab`, err);
+    try {
+      return await chrome.tabs.create({ ...props, url: NEW_TAB_URL });
+    } catch {
+      return null;
+    }
+  }
+}
 
 export const windowOpener = {
   /**
@@ -16,22 +48,18 @@ export const windowOpener = {
   async openWorkspace(workspaceId, targetTabIdentifier = null) {
     if (!workspaceId) return null;
 
-    // 1. Check if workspace is already open in a window
+    // 1. Already open: focus it
     const existingWinId = await windowRegistry.getWindowForWorkspace(workspaceId);
     if (existingWinId !== null) {
       try {
         await chrome.windows.update(existingWinId, { focused: true });
         await windowRegistry.setActiveWorkspaceId(workspaceId);
-        await this.updateToolbarBadge(existingWinId, workspaceId);
+        await workspaceManager.touchLastOpened(workspaceId);
 
-        if (targetTabIdentifier) {
-          const tabs = await chrome.tabs.query({ windowId: existingWinId });
-          const target = tabs.find(
-            (t) => t.id === targetTabIdentifier || String(t.id) === String(targetTabIdentifier)
-          );
-          if (target) {
-            await chrome.tabs.update(target.id, { active: true });
-          }
+        if (targetTabIdentifier != null) {
+          const ctx = await workspaceManager.liveContext(workspaceId);
+          const target = await workspaceManager.resolveLiveTab(ctx, targetTabIdentifier);
+          if (target) await chrome.tabs.update(target.id, { active: true });
         }
         return existingWinId;
       } catch (err) {
@@ -42,204 +70,118 @@ export const windowOpener = {
 
     // 2. Load workspace data
     const ws = await workspaceManager.getWorkspace(workspaceId);
-    if (!ws) {
-      throw new Error(`Workspace ${workspaceId} not found`);
-    }
+    if (!ws) throw new Error(`Workspace ${workspaceId} not found`);
 
-    // Check settings for auto-closing previous workspace window
-    const state = await workspaceManager.getState();
-    if (state.settings?.closeWindowOnWorkspaceSwitch) {
-      const activeWsId = await windowRegistry.getActiveWorkspaceId();
-      if (activeWsId && activeWsId !== workspaceId) {
-        const activeWinId = await windowRegistry.getWindowForWorkspace(activeWsId);
-        if (activeWinId) {
-          try {
-            await chrome.windows.remove(activeWinId);
-          } catch {
-            // Ignore error if window already closing
-          }
-        }
-      }
-    }
+    const state = await workspaceManager.loadState();
+    const previousWsId = await windowRegistry.getActiveWorkspaceId();
 
     // 3. Suppress sync during restore to avoid thrashing
     await windowRegistry.setSuppressSync(true);
+    let winId = null;
 
     try {
-      const tabs = (ws.tabs && ws.tabs.length > 0) ? ws.tabs : [{
-        url: 'chrome://newtab/',
-        pinned: false,
-        active: true
-      }];
+      const tabs = ws.tabs.length > 0 ? ws.tabs : [{ id: null, url: NEW_TAB_URL, pinned: false, active: true }];
+      const wantedActive = targetTabIdentifier != null
+        ? tabs.find((t) => t.id === targetTabIdentifier) || tabs.find((t) => t.active)
+        : tabs.find((t) => t.active);
 
-      const firstTab = tabs[0];
-      const initialUrl = isRestrictedUrl(firstTab.url)
-        ? sanitizeRestoreUrl(firstTab.url)
-        : firstTab.url;
-
-      // 4. Create the new browser window with the first tab
-      const win = await chrome.windows.create({
-        url: initialUrl,
-        focused: true
-      });
-
-      // 5. Bind window immediately
+      const win = await createWindowFor(ws, sanitizeRestoreUrl(tabs[0].url));
+      winId = win.id;
       await windowRegistry.bind(win.id, workspaceId);
 
       const createdTabs = [];
-      const winTabs = await chrome.tabs.query({ windowId: win.id });
-      if (winTabs.length > 0) {
-        const firstCreatedTab = winTabs[0];
-        if (firstTab.pinned) {
-          try {
-            await chrome.tabs.update(firstCreatedTab.id, { pinned: true });
-          } catch {
-            // Non-critical
-          }
+      const firstLive = (win.tabs && win.tabs[0]) || (await chrome.tabs.query({ windowId: win.id }))[0];
+      if (firstLive) {
+        if (tabs[0].pinned) {
+          await chrome.tabs.update(firstLive.id, { pinned: true }).catch(() => {});
         }
-        createdTabs.push({
-          id: firstCreatedTab.id,
-          savedTabId: firstTab.id,
-          savedGroupId: firstTab.groupId
-        });
+        createdTabs.push({ id: firstLive.id, savedTabId: tabs[0].id, savedGroupId: tabs[0].groupId, active: tabs[0] === wantedActive });
       }
-
-      // 6. Create remaining tabs
-      let activeTabIdToSet = (firstTab.active && createdTabs[0]) ? createdTabs[0].id : null;
 
       for (let i = 1; i < tabs.length; i++) {
         const t = tabs[i];
-        let tabUrl = t.url;
-        if (isRestrictedUrl(tabUrl)) {
-          tabUrl = sanitizeRestoreUrl(tabUrl);
-        }
-
-        try {
-          const created = await chrome.tabs.create({
-            windowId: win.id,
-            url: tabUrl,
-            pinned: Boolean(t.pinned),
-            index: i,
-            active: false
-          });
-
-          createdTabs.push({
-            id: created.id,
-            savedTabId: t.id,
-            savedGroupId: t.groupId
-          });
-
-          if (t.active) {
-            activeTabIdToSet = created.id;
-          }
-        } catch (tabErr) {
-          console.warn(`Failed to create tab with url: ${tabUrl}, falling back to newtab`, tabErr);
-          try {
-            const fallbackTab = await chrome.tabs.create({
-              windowId: win.id,
-              url: 'chrome://newtab/',
-              pinned: Boolean(t.pinned),
-              index: i,
-              active: false
-            });
-            createdTabs.push({
-              id: fallbackTab.id,
-              savedTabId: t.id,
-              savedGroupId: t.groupId
-            });
-          } catch {
-            // Ignore fallback tab failure
-          }
+        const created = await createTabSafely({
+          windowId: win.id,
+          url: sanitizeRestoreUrl(t.url),
+          pinned: Boolean(t.pinned),
+          index: i,
+          active: false
+        });
+        if (created) {
+          createdTabs.push({ id: created.id, savedTabId: t.id, savedGroupId: t.groupId, active: t === wantedActive });
         }
       }
 
-      // 7. Rebuild tab groups
-      if (ws.groups && ws.groups.length > 0) {
-        await groupSync.restoreGroups(win.id, ws.groups, createdTabs);
+      const activeCreated = createdTabs.find((c) => c.active);
+      if (activeCreated) {
+        await chrome.tabs.update(activeCreated.id, { active: true }).catch(() => {});
       }
 
-      // 8. Activate the designated active tab (or targeted tab)
-      if (targetTabIdentifier) {
-        const matchedTab = createdTabs.find(
-          (ct) => ct.savedTabId === targetTabIdentifier || ct.id === targetTabIdentifier
-        );
-        if (matchedTab) {
-          activeTabIdToSet = matchedTab.id;
-        }
-      }
+      // Groups last: collapsed state can only apply to groups without the active tab
+      const groupMap = await groupSync.restoreGroups(win.id, ws.groups || [], createdTabs);
 
-      if (activeTabIdToSet) {
-        try {
-          await chrome.tabs.update(activeTabIdToSet, { active: true });
-        } catch {
-          // Ignore
-        }
+      const tabMap = {};
+      for (const c of createdTabs) {
+        if (c.savedTabId) tabMap[c.savedTabId] = c.id;
       }
-
-      // 9. Touch lastOpenedAt and update active workspace
-      ws.lastOpenedAt = Date.now();
-      await workspaceManager.saveWorkspaces(state.workspaces);
+      await windowRegistry.setLiveMaps(workspaceId, { tabs: tabMap, groups: groupMap });
+      await workspaceManager.touchLastOpened(workspaceId);
       await windowRegistry.setActiveWorkspaceId(workspaceId);
-
-      // 10. Update badge on toolbar
-      await this.updateToolbarBadge(win.id, workspaceId);
-
-      return win.id;
     } finally {
-      // Allow tab syncing again
       await windowRegistry.setSuppressSync(false);
-      try {
-        await tabSync.saveWorkspaceFromWindow(workspaceId);
-      } catch {
-        // Ignore snapshot error
-      }
     }
+
+    // 4. Optionally close the window of the workspace we switched away from.
+    // Done only after the new window exists, so the browser never runs out of windows.
+    if (state.settings?.closeWindowOnWorkspaceSwitch && previousWsId && previousWsId !== workspaceId) {
+      await this.closeWorkspace(previousWsId);
+    }
+
+    try {
+      await tabSync.saveWorkspaceFromWindow(workspaceId);
+    } catch {
+      // Snapshot is best-effort; events will sync later
+    }
+    return winId;
   },
 
   /**
-   * Close a workspace's window
+   * Focus a tab of a workspace, opening the workspace if needed
+   */
+  async openTabInWorkspace(workspaceId, tabId, url) {
+    const ctx = await workspaceManager.liveContext(workspaceId);
+    if (ctx) {
+      await chrome.windows.update(ctx.winId, { focused: true });
+      const live = await workspaceManager.resolveLiveTab(ctx, tabId);
+      if (live) {
+        await chrome.tabs.update(live.id, { active: true });
+      } else if (url) {
+        await chrome.tabs.create({ windowId: ctx.winId, url: sanitizeRestoreUrl(url), active: true });
+      }
+      await windowRegistry.setActiveWorkspaceId(workspaceId);
+      return ctx.winId;
+    }
+    return this.openWorkspace(workspaceId, tabId);
+  },
+
+  /**
+   * Close a workspace's window, saving its latest state first
    */
   async closeWorkspace(workspaceId) {
     const winId = await windowRegistry.getWindowForWorkspace(workspaceId);
-    if (winId !== null) {
-      try {
-        await chrome.windows.remove(winId);
-      } catch (err) {
-        console.warn(`Could not close window ${winId}`, err);
-      }
-      await windowRegistry.unbind(winId);
-    }
-  },
+    if (winId === null) return false;
 
-  /**
-   * Update action badge for window's workspace color/initial
-   */
-  async updateToolbarBadge(windowId, workspaceId) {
-    if (!chrome.action) return;
-
-    if (!workspaceId) {
-      await chrome.action.setBadgeText({ text: '', windowId }).catch(() => {});
-      return;
-    }
-
-    const ws = await workspaceManager.getWorkspace(workspaceId);
-    if (!ws) {
-      await chrome.action.setBadgeText({ text: '', windowId }).catch(() => {});
-      return;
-    }
-
-    const colorDef = getColor(ws.color);
     try {
-      await chrome.action.setBadgeText({ text: '●', windowId });
-      await chrome.action.setBadgeBackgroundColor({ color: colorDef.hex, windowId });
+      await tabSync.flush(workspaceId);
     } catch {
-      // Some versions of Chromium don't accept windowId on badge, fallback to global
-      try {
-        await chrome.action.setBadgeText({ text: '●' });
-        await chrome.action.setBadgeBackgroundColor({ color: colorDef.hex });
-      } catch {
-        // Ignore
-      }
+      // Best effort
     }
+    await windowRegistry.unbind(winId);
+    try {
+      await chrome.windows.remove(winId);
+    } catch (err) {
+      console.warn(`Could not close window ${winId}`, err);
+    }
+    return true;
   }
 };

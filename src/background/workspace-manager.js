@@ -1,33 +1,153 @@
 /**
- * Workspace Manager — handles CRUD, persistence, duplication, and window adoption
+ * Workspace Manager — handles CRUD, persistence, duplication, window adoption and
+ * tab / tab-group operations on both open (live) and closed (stored) workspaces.
+ *
+ * Every write goes through mutate(), which serializes read-modify-write cycles so
+ * concurrent saves (tab sync + UI actions) can never clobber each other.
  */
 
 import { STORAGE_KEYS } from '../shared/constants.js';
 import { storage } from '../shared/storage.js';
-import { createWorkspaceModel, migrateStorageData, sanitizeTab, sanitizeGroup } from '../shared/schema.js';
+import {
+  createWorkspaceModel,
+  migrateStorageData,
+  sanitizeTab,
+  sanitizeGroup,
+  sanitizeName,
+  sanitizeIcon,
+  sanitizeFavicon,
+  sanitizeWindowInfo,
+  sanitizeWorkspace,
+  newTabEntry
+} from '../shared/schema.js';
+import { isValidColor, nextUnusedColor } from '../shared/colors.js';
 import { windowRegistry } from './window-registry.js';
-import { generateId } from '../shared/utils.js';
+import { isNativeGrouped } from './group-sync.js';
+import { generateId, createLock, NEW_TAB_URL, sanitizeRestoreUrl } from '../shared/utils.js';
+
+const withLock = createLock();
+export const SKIP_SAVE = Symbol('skip-save');
+
+function invert(map = {}) {
+  const out = {};
+  for (const [k, v] of Object.entries(map)) out[String(v)] = k;
+  return out;
+}
+
+function isNumericId(value) {
+  return typeof value === 'number' || /^\d+$/.test(String(value ?? ''));
+}
+
+/**
+ * Capture a live window as persistent tabs/groups. Existing persistent IDs are kept
+ * stable via the live maps (native ID -> persistent ID), falling back to matching
+ * group title+color and tab URL against the stored workspace.
+ */
+export async function snapshotWindow(windowId, existingWs = null, liveMaps = { tabs: {}, groups: {} }) {
+  const [tabs, nativeGroups, win] = await Promise.all([
+    chrome.tabs.query({ windowId }),
+    chrome.tabGroups ? chrome.tabGroups.query({ windowId }).catch(() => []) : Promise.resolve([]),
+    chrome.windows.get(windowId).catch(() => null)
+  ]);
+
+  const revGroups = invert(liveMaps.groups);
+  const revTabs = invert(liveMaps.tabs);
+  const existingGroups = existingWs?.groups || [];
+  const usedGroupIds = new Set();
+  const groupMap = {};
+  const nativeToPersistent = new Map();
+
+  const groups = nativeGroups.map((ng) => {
+    let pid = revGroups[String(ng.id)];
+    if (!pid || usedGroupIds.has(pid)) {
+      const match = existingGroups.find(
+        (g) => !usedGroupIds.has(g.id) && g.title === (ng.title || '') && g.color === ng.color
+      );
+      pid = match ? match.id : generateId('g');
+    }
+    usedGroupIds.add(pid);
+    groupMap[pid] = ng.id;
+    nativeToPersistent.set(ng.id, pid);
+    return sanitizeGroup({ id: pid, title: ng.title || '', color: ng.color, collapsed: ng.collapsed });
+  });
+
+  // Unclaimed stored tab IDs by URL, consumed in order (handles duplicate URLs)
+  const claimedTabIds = new Set(Object.keys(liveMaps.tabs).filter((pid) => tabs.some((t) => String(t.id) === String(liveMaps.tabs[pid]))));
+  const byUrl = new Map();
+  for (const st of existingWs?.tabs || []) {
+    if (claimedTabIds.has(st.id)) continue;
+    if (!byUrl.has(st.url)) byUrl.set(st.url, []);
+    byUrl.get(st.url).push(st.id);
+  }
+
+  const usedTabIds = new Set();
+  const tabMap = {};
+  const savedTabs = tabs.map((t, idx) => {
+    const url = t.url || t.pendingUrl || NEW_TAB_URL;
+    let pid = revTabs[String(t.id)];
+    if (!pid || usedTabIds.has(pid)) {
+      const candidates = byUrl.get(url);
+      pid = candidates && candidates.length ? candidates.shift() : generateId('t');
+    }
+    usedTabIds.add(pid);
+    tabMap[pid] = t.id;
+    return {
+      id: pid,
+      url,
+      title: t.title || url,
+      favIconUrl: sanitizeFavicon(t.favIconUrl),
+      pinned: Boolean(t.pinned),
+      index: idx,
+      groupId: isNativeGrouped(t) ? nativeToPersistent.get(t.groupId) || null : null,
+      active: Boolean(t.active)
+    };
+  });
+
+  let windowInfo = existingWs?.window || null;
+  if (win && win.state !== 'minimized') {
+    windowInfo = sanitizeWindowInfo(win);
+  }
+
+  return {
+    tabs: savedTabs,
+    groups,
+    window: windowInfo,
+    liveMaps: { tabs: tabMap, groups: groupMap }
+  };
+}
 
 export const workspaceManager = {
+  SKIP_SAVE,
+
   /**
-   * Load full workspaces state from storage
+   * Load persisted state (workspaces, order, settings) without session info
    */
-  async getState() {
+  async loadState() {
     const raw = await storage.getLocal([
       STORAGE_KEYS.WORKSPACES,
       STORAGE_KEYS.WORKSPACE_ORDER,
       STORAGE_KEYS.SETTINGS,
       STORAGE_KEYS.SCHEMA_VERSION
     ]);
+    return migrateStorageData(raw);
+  },
 
-    const state = migrateStorageData(raw);
-    const bindings = await windowRegistry.getAllBindings();
-    const activeWorkspaceId = await windowRegistry.getActiveWorkspaceId();
+  /**
+   * Load full workspaces state from storage, including window bindings
+   */
+  async getState() {
+    const state = await this.loadState();
+    const [bindings, activeWorkspaceId, previousWorkspaceId] = await Promise.all([
+      windowRegistry.getAllBindings(),
+      windowRegistry.getActiveWorkspaceId(),
+      windowRegistry.getPreviousWorkspaceId()
+    ]);
 
     return {
       ...state,
       bindings,
-      activeWorkspaceId
+      activeWorkspaceId,
+      previousWorkspaceId
     };
   },
 
@@ -35,688 +155,707 @@ export const workspaceManager = {
    * Get single workspace by ID
    */
   async getWorkspace(id) {
-    const state = await this.getState();
+    const state = await this.loadState();
     return state.workspaces[id] || null;
   },
 
   /**
-   * Save updated workspaces dictionary and order
+   * Atomically read, modify and persist state. Return SKIP_SAVE from fn to avoid a write.
+   */
+  async mutate(fn) {
+    return withLock(async () => {
+      const state = await this.loadState();
+      const result = await fn(state);
+      if (result === SKIP_SAVE) return undefined;
+      await storage.setLocal({
+        [STORAGE_KEYS.SCHEMA_VERSION]: state.schemaVersion,
+        [STORAGE_KEYS.WORKSPACES]: state.workspaces,
+        [STORAGE_KEYS.WORKSPACE_ORDER]: state.workspaceOrder
+      });
+      return result;
+    });
+  },
+
+  /**
+   * Replace the workspaces dictionary (and optionally order) wholesale
    */
   async saveWorkspaces(workspaces, workspaceOrder = null) {
-    const update = {
-      [STORAGE_KEYS.WORKSPACES]: workspaces
-    };
-    if (workspaceOrder) {
-      update[STORAGE_KEYS.WORKSPACE_ORDER] = workspaceOrder;
-    }
-    await storage.setLocal(update);
+    return withLock(async () => {
+      const update = { [STORAGE_KEYS.WORKSPACES]: workspaces };
+      if (workspaceOrder) update[STORAGE_KEYS.WORKSPACE_ORDER] = workspaceOrder;
+      await storage.setLocal(update);
+    });
+  },
+
+  async updateSettings(partial = {}) {
+    return withLock(async () => {
+      const state = await this.loadState();
+      const merged = migrateStorageData({ settings: { ...state.settings, ...partial } }).settings;
+      await storage.setLocal({ [STORAGE_KEYS.SETTINGS]: merged });
+      return merged;
+    });
   },
 
   /**
    * Create a new workspace
    */
-  async createWorkspace({ name, color, icon, tabs = [], groups = [] }) {
-    const state = await this.getState();
-    const newWs = createWorkspaceModel({ name, color, icon, tabs, groups });
-
-    state.workspaces[newWs.id] = newWs;
-    state.workspaceOrder.push(newWs.id);
-
-    await this.saveWorkspaces(state.workspaces, state.workspaceOrder);
-    return newWs;
+  async createWorkspace({ name, color, icon, tabs = [], groups = [], window: windowInfo = null } = {}) {
+    return this.mutate((state) => {
+      const chosenColor = isValidColor(color)
+        ? color
+        : nextUnusedColor(Object.values(state.workspaces).map((w) => w.color), state.workspaceOrder.length);
+      const newWs = createWorkspaceModel({ name, color: chosenColor, icon, tabs, groups, window: windowInfo });
+      state.workspaces[newWs.id] = newWs;
+      state.workspaceOrder.push(newWs.id);
+      return newWs;
+    });
   },
 
   /**
-   * Create a workspace from an existing browser window
+   * Create a workspace from an existing browser window and bind it
    */
-  async createFromCurrentWindow(windowId, name, color) {
-    const [tabs, nativeGroups] = await Promise.all([
-      chrome.tabs.query({ windowId }),
-      chrome.tabGroups ? chrome.tabGroups.query({ windowId }) : Promise.resolve([])
-    ]);
-
-    // Map native group IDs to persistent group IDs
-    const groupIdMap = new Map();
-    const savedGroups = nativeGroups.map((ng) => {
-      const persistentId = generateId('g');
-      groupIdMap.set(ng.id, persistentId);
-      return {
-        id: persistentId,
-        title: ng.title || '',
-        color: ng.color || 'grey',
-        collapsed: false
-      };
-    });
-
-    const savedTabs = tabs.map((t, idx) => ({
-      id: generateId('t'),
-      url: t.url || t.pendingUrl || 'chrome://newtab/',
-      title: t.title || 'New Tab',
-      favIconUrl: t.favIconUrl || '',
-      pinned: t.pinned || false,
-      index: idx,
-      groupId: t.groupId && t.groupId !== -1 ? groupIdMap.get(t.groupId) || null : null,
-      active: t.active || false
-    }));
-
+  async createFromCurrentWindow(windowId, name, color, icon = '') {
+    const snap = await snapshotWindow(windowId);
     const ws = await this.createWorkspace({
       name: name || 'Window Workspace',
-      color: color || 'blue',
-      tabs: savedTabs,
-      groups: savedGroups
+      color,
+      icon,
+      tabs: snap.tabs,
+      groups: snap.groups,
+      window: snap.window
     });
 
-    // Bind this window immediately
     await windowRegistry.bind(windowId, ws.id);
+    await windowRegistry.setLiveMaps(ws.id, snap.liveMaps);
     return ws;
   },
 
   /**
-   * Rename workspace
+   * Update name / color / icon in one go
    */
+  async updateWorkspace(id, { name, color, icon } = {}) {
+    return this.mutate((state) => {
+      const ws = state.workspaces[id];
+      if (!ws) throw new Error(`Workspace ${id} not found`);
+      if (name !== undefined) ws.name = sanitizeName(name);
+      if (color !== undefined && isValidColor(color)) ws.color = color;
+      if (icon !== undefined) ws.icon = sanitizeIcon(icon);
+      ws.updatedAt = Date.now();
+      return ws;
+    });
+  },
+
   async renameWorkspace(id, newName) {
-    const state = await this.getState();
-    if (!state.workspaces[id]) {
-      throw new Error(`Workspace ${id} not found`);
-    }
-
-    state.workspaces[id].name = (newName || 'Workspace').trim();
-    state.workspaces[id].updatedAt = Date.now();
-
-    await this.saveWorkspaces(state.workspaces);
-    return state.workspaces[id];
+    return this.updateWorkspace(id, { name: newName });
   },
 
-  /**
-   * Recolor workspace
-   */
   async recolorWorkspace(id, newColor) {
-    const state = await this.getState();
-    if (!state.workspaces[id]) {
-      throw new Error(`Workspace ${id} not found`);
-    }
-
-    state.workspaces[id].color = newColor;
-    state.workspaces[id].updatedAt = Date.now();
-
-    await this.saveWorkspaces(state.workspaces);
-    return state.workspaces[id];
+    if (!isValidColor(newColor)) throw new Error(`Invalid color: ${newColor}`);
+    return this.updateWorkspace(id, { color: newColor });
   },
 
   /**
-   * Delete workspace
+   * Delete workspace. Its window (if open) stays open, unmanaged.
+   * Returns the removed workspace and its position so the UI can offer undo.
    */
   async deleteWorkspace(id) {
-    const state = await this.getState();
-    if (!state.workspaces[id]) return false;
+    const removed = await this.mutate((state) => {
+      const ws = state.workspaces[id];
+      if (!ws) return SKIP_SAVE;
+      const index = state.workspaceOrder.indexOf(id);
+      delete state.workspaces[id];
+      state.workspaceOrder = state.workspaceOrder.filter((wId) => wId !== id);
+      return { workspace: ws, index };
+    });
 
-    // If window is currently open, unbind it so it becomes unmanaged
-    const winId = await windowRegistry.getWindowForWorkspace(id);
-    if (winId) {
-      await windowRegistry.unbind(winId);
-    }
+    if (!removed) return null;
+    await windowRegistry.unbindWorkspace(id);
+    return removed;
+  },
 
-    delete state.workspaces[id];
-    state.workspaceOrder = state.workspaceOrder.filter((wId) => wId !== id);
-
-    await this.saveWorkspaces(state.workspaces, state.workspaceOrder);
-    return true;
+  /**
+   * Put a deleted workspace back (undo)
+   */
+  async restoreWorkspace(workspace, index = -1) {
+    if (!workspace || !workspace.id) throw new Error('Nothing to restore');
+    return this.mutate((state) => {
+      const clean = sanitizeWorkspace(workspace, workspace.id);
+      if (state.workspaces[clean.id]) clean.id = generateId('ws');
+      state.workspaces[clean.id] = clean;
+      const pos = index >= 0 && index <= state.workspaceOrder.length ? index : state.workspaceOrder.length;
+      state.workspaceOrder.splice(pos, 0, clean.id);
+      return clean;
+    });
   },
 
   /**
    * Duplicate workspace
    */
   async duplicateWorkspace(id) {
-    const state = await this.getState();
-    const source = state.workspaces[id];
-    if (!source) {
-      throw new Error(`Workspace ${id} not found`);
-    }
+    return this.mutate((state) => {
+      const source = state.workspaces[id];
+      if (!source) throw new Error(`Workspace ${id} not found`);
 
-    // Remap group IDs
-    const groupIdMap = new Map();
-    const newGroups = (source.groups || []).map((g) => {
-      const newGid = generateId('g');
-      groupIdMap.set(g.id, newGid);
-      return {
-        ...g,
-        id: newGid
-      };
+      const groupIdMap = new Map();
+      const newGroups = (source.groups || []).map((g) => {
+        const newGid = generateId('g');
+        groupIdMap.set(g.id, newGid);
+        return { ...g, id: newGid };
+      });
+
+      const newTabs = (source.tabs || []).map((t) => ({
+        ...t,
+        id: generateId('t'),
+        groupId: t.groupId ? groupIdMap.get(t.groupId) || null : null
+      }));
+
+      const copy = createWorkspaceModel({
+        name: `${source.name} (Copy)`,
+        color: source.color,
+        icon: source.icon,
+        tabs: newTabs,
+        groups: newGroups,
+        window: source.window
+      });
+
+      state.workspaces[copy.id] = copy;
+      const idx = state.workspaceOrder.indexOf(id);
+      if (idx !== -1) state.workspaceOrder.splice(idx + 1, 0, copy.id);
+      else state.workspaceOrder.push(copy.id);
+      return copy;
     });
-
-    const newTabs = (source.tabs || []).map((t) => ({
-      ...t,
-      id: generateId('t'),
-      groupId: t.groupId ? groupIdMap.get(t.groupId) || null : null
-    }));
-
-    const copy = createWorkspaceModel({
-      name: `${source.name} (Copy)`,
-      color: source.color,
-      icon: source.icon,
-      tabs: newTabs,
-      groups: newGroups
-    });
-
-    state.workspaces[copy.id] = copy;
-
-    // Insert copy directly after original
-    const idx = state.workspaceOrder.indexOf(id);
-    if (idx !== -1) {
-      state.workspaceOrder.splice(idx + 1, 0, copy.id);
-    } else {
-      state.workspaceOrder.push(copy.id);
-    }
-
-    await this.saveWorkspaces(state.workspaces, state.workspaceOrder);
-    return copy;
   },
 
   /**
    * Reorder workspaces
    */
-  async reorderWorkspaces(newOrder) {
-    const state = await this.getState();
-    // Validate that newOrder contains valid IDs
-    const validIds = newOrder.filter((id) => Boolean(state.workspaces[id]));
-    for (const id of state.workspaceOrder) {
-      if (!validIds.includes(id)) validIds.push(id);
-    }
-
-    await storage.setLocal({ [STORAGE_KEYS.WORKSPACE_ORDER]: validIds });
-    return validIds;
+  async reorderWorkspaces(newOrder = []) {
+    return this.mutate((state) => {
+      const validIds = [...new Set(newOrder)].filter((id) => Boolean(state.workspaces[id]));
+      for (const id of state.workspaceOrder) {
+        if (!validIds.includes(id)) validIds.push(id);
+      }
+      state.workspaceOrder = validIds;
+      return validIds;
+    });
   },
 
   /**
-   * Adopt current window into an existing workspace
+   * Adopt a window into an existing workspace (replacing its saved tabs)
    */
   async adoptWindow(windowId, workspaceId) {
-    const state = await this.getState();
-    const ws = state.workspaces[workspaceId];
-    if (!ws) {
-      throw new Error(`Workspace ${workspaceId} not found`);
-    }
+    const existing = await this.getWorkspace(workspaceId);
+    if (!existing) throw new Error(`Workspace ${workspaceId} not found`);
 
-    // Capture current tabs and groups in the window
-    const [tabs, nativeGroups] = await Promise.all([
-      chrome.tabs.query({ windowId }),
-      chrome.tabGroups ? chrome.tabGroups.query({ windowId }) : Promise.resolve([])
-    ]);
-
-    const groupIdMap = new Map();
-    const savedGroups = nativeGroups.map((ng) => {
-      const persistentId = generateId('g');
-      groupIdMap.set(ng.id, persistentId);
-      return {
-        id: persistentId,
-        title: ng.title || '',
-        color: ng.color || 'grey',
-        collapsed: false
-      };
+    const snap = await snapshotWindow(windowId, existing);
+    const ws = await this.mutate((state) => {
+      const target = state.workspaces[workspaceId];
+      if (!target) throw new Error(`Workspace ${workspaceId} not found`);
+      target.tabs = snap.tabs.length ? snap.tabs : [newTabEntry(0)];
+      target.groups = snap.groups;
+      target.window = snap.window;
+      target.updatedAt = Date.now();
+      target.lastOpenedAt = Date.now();
+      return target;
     });
 
-    const savedTabs = tabs.map((t, idx) => ({
-      id: generateId('t'),
-      url: t.url || t.pendingUrl || 'chrome://newtab/',
-      title: t.title || 'New Tab',
-      favIconUrl: t.favIconUrl || '',
-      pinned: t.pinned || false,
-      index: idx,
-      groupId: t.groupId && t.groupId !== -1 ? groupIdMap.get(t.groupId) || null : null,
-      active: t.active || false
-    }));
-
-    ws.tabs = savedTabs;
-    ws.groups = savedGroups;
-    ws.updatedAt = Date.now();
-    ws.lastOpenedAt = Date.now();
-
-    await this.saveWorkspaces(state.workspaces);
     await windowRegistry.bind(windowId, workspaceId);
+    await windowRegistry.setLiveMaps(workspaceId, snap.liveMaps);
     return ws;
   },
 
+  async touchLastOpened(workspaceId) {
+    return this.mutate((state) => {
+      const ws = state.workspaces[workspaceId];
+      if (!ws) return SKIP_SAVE;
+      ws.lastOpenedAt = Date.now();
+      return ws;
+    });
+  },
+
+  // ---------------------------------------------------------------------------
+  // Live resolution helpers
+  // ---------------------------------------------------------------------------
+
+  async liveContext(workspaceId) {
+    if (!workspaceId) return null;
+    const winId = await windowRegistry.getWindowForWorkspace(workspaceId);
+    if (winId === null) return null;
+    const maps = await windowRegistry.getLiveMaps(workspaceId);
+    return { workspaceId, winId, maps };
+  },
+
   /**
-   * Move a tab to a target workspace
+   * Resolve a persistent (or native numeric) tab ID to a live Chrome tab in ctx's window
    */
-  async moveTabToWorkspace(tabId, targetWorkspaceId) {
-    const state = await this.getState();
-    const targetWs = state.workspaces[targetWorkspaceId];
-    if (!targetWs) {
-      throw new Error(`Target workspace ${targetWorkspaceId} not found`);
+  async resolveLiveTab(ctx, tabRef) {
+    if (!ctx || tabRef == null) return null;
+    let chromeId = ctx.maps.tabs[String(tabRef)];
+    if (chromeId == null && isNumericId(tabRef)) chromeId = Number(tabRef);
+    if (chromeId == null) return null;
+    try {
+      const tab = await chrome.tabs.get(chromeId);
+      return tab && tab.windowId === ctx.winId ? tab : null;
+    } catch {
+      return null;
     }
+  },
+
+  resolveNativeGroupId(ctx, groupRef) {
+    if (!ctx || groupRef == null) return null;
+    const mapped = ctx.maps.groups[String(groupRef)];
+    if (mapped != null) return mapped;
+    return isNumericId(groupRef) ? Number(groupRef) : null;
+  },
+
+  persistentGroupIdFor(maps, nativeGroupId) {
+    return invert(maps.groups)[String(nativeGroupId)] || null;
+  },
+
+  /**
+   * Make sure removing/moving a tab never closes its window (and loses the workspace)
+   */
+  async ensureNotLastTab(windowId) {
+    const tabs = await chrome.tabs.query({ windowId });
+    if (tabs.length <= 1) {
+      await chrome.tabs.create({ windowId, url: NEW_TAB_URL, active: false });
+    }
+  },
+
+  async flushSync(workspaceId) {
+    const { tabSync } = await import('./tab-sync.js');
+    await tabSync.flush(workspaceId);
+  },
+
+  // ---------------------------------------------------------------------------
+  // Tab operations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Move a tab to a target workspace.
+   * tabRef: persistent tab ID (with sourceWorkspaceId) or native Chrome tab ID.
+   */
+  async moveTabToWorkspace(tabRef, targetWorkspaceId, sourceWorkspaceId = null) {
+    const target = await this.getWorkspace(targetWorkspaceId);
+    if (!target) throw new Error(`Target workspace ${targetWorkspaceId} not found`);
+
+    let sourceWsId = sourceWorkspaceId;
+    let liveTab = null;
+    let persistentId = isNumericId(tabRef) ? null : String(tabRef);
+
+    if (isNumericId(tabRef) && !sourceWsId) {
+      try {
+        liveTab = await chrome.tabs.get(Number(tabRef));
+      } catch {
+        throw new Error('That tab no longer exists');
+      }
+      sourceWsId = await windowRegistry.getWorkspaceForWindow(liveTab.windowId);
+    }
+
+    if (sourceWsId === targetWorkspaceId) return { moved: false };
+
+    const sourceCtx = await this.liveContext(sourceWsId);
+    if (!liveTab && sourceCtx) liveTab = await this.resolveLiveTab(sourceCtx, tabRef);
+    if (!persistentId && sourceCtx && liveTab) {
+      persistentId = invert(sourceCtx.maps.tabs)[String(liveTab.id)] || null;
+    }
+    persistentId = persistentId || generateId('t');
+
+    const source = sourceWsId ? await this.getWorkspace(sourceWsId) : null;
+    const storedEntry = source?.tabs.find((t) => t.id === persistentId) || null;
+    const entry = sanitizeTab({
+      ...(storedEntry || {}),
+      ...(liveTab ? { url: liveTab.url || liveTab.pendingUrl, title: liveTab.title, favIconUrl: liveTab.favIconUrl, pinned: liveTab.pinned } : {}),
+      id: persistentId,
+      groupId: null,
+      active: false
+    });
+    if (!liveTab && !storedEntry) throw new Error('Tab not found');
 
     const targetWinId = await windowRegistry.getWindowForWorkspace(targetWorkspaceId);
 
-    if (targetWinId !== null) {
-      // Target workspace is currently open in a window: move tab natively
-      await chrome.tabs.move(tabId, { windowId: targetWinId, index: -1 });
-    } else {
-      // Target workspace is closed: get tab info, append to target tabs, close tab in current window
-      const tab = await chrome.tabs.get(tabId);
-      const newTabEntry = {
-        id: generateId('t'),
-        url: tab.url || tab.pendingUrl || 'chrome://newtab/',
-        title: tab.title || 'New Tab',
-        favIconUrl: tab.favIconUrl || '',
-        pinned: tab.pinned || false,
-        index: targetWs.tabs.length,
-        groupId: null,
-        active: false
-      };
-
-      targetWs.tabs.push(newTabEntry);
-      targetWs.updatedAt = Date.now();
-      await this.saveWorkspaces(state.workspaces);
-
-      // Close the tab in the current window
-      await chrome.tabs.remove(tabId);
+    if (liveTab) {
+      await this.ensureNotLastTab(liveTab.windowId);
+      if (targetWinId !== null) {
+        await chrome.tabs.move(liveTab.id, { windowId: targetWinId, index: -1 });
+        await windowRegistry.moveLiveTab(sourceWsId, targetWorkspaceId, persistentId, liveTab.id);
+      } else {
+        await this.mutate((state) => {
+          const ws = state.workspaces[targetWorkspaceId];
+          if (!ws) return SKIP_SAVE;
+          ws.tabs.push({ ...entry, index: ws.tabs.length });
+          ws.updatedAt = Date.now();
+          return true;
+        });
+        // The source window's own sync records the removal
+        await chrome.tabs.remove(liveTab.id);
+      }
+      return { moved: true, tabId: persistentId };
     }
+
+    // Source workspace is closed: the tab only exists in storage
+    if (targetWinId !== null) {
+      const created = await chrome.tabs.create({ windowId: targetWinId, url: sanitizeRestoreUrl(entry.url), active: false });
+      await windowRegistry.moveLiveTab(null, targetWorkspaceId, persistentId, created.id);
+    }
+    await this.mutate((state) => {
+      const src = state.workspaces[sourceWsId];
+      if (src) {
+        src.tabs = src.tabs.filter((t) => t.id !== persistentId);
+        if (src.tabs.length === 0) src.tabs.push(newTabEntry(0));
+        pruneEmptyGroups(src);
+        src.updatedAt = Date.now();
+      }
+      const ws = state.workspaces[targetWorkspaceId];
+      if (ws && targetWinId === null) {
+        ws.tabs.push({ ...entry, index: ws.tabs.length });
+        ws.updatedAt = Date.now();
+      }
+      return true;
+    });
+    return { moved: true, tabId: persistentId };
   },
 
   /**
    * Close a specific tab in a workspace
    */
   async closeTabInWorkspace(workspaceId, tabId) {
-    const winId = await windowRegistry.getWindowForWorkspace(workspaceId);
-    if (winId !== null) {
-      // Check if tab exists in active window
-      const tabs = await chrome.tabs.query({ windowId: winId });
-      const found = tabs.find((t) => String(t.id) === String(tabId) || t.id === tabId);
-      if (found) {
-        await chrome.tabs.remove(found.id);
-        return;
-      }
+    const ctx = await this.liveContext(workspaceId);
+    const liveTab = await this.resolveLiveTab(ctx, tabId);
+    if (liveTab) {
+      await this.ensureNotLastTab(liveTab.windowId);
+      await chrome.tabs.remove(liveTab.id);
+      return { closed: true, live: true };
     }
 
-    // Otherwise remove from persisted tab list
-    const state = await this.getState();
-    const ws = state.workspaces[workspaceId];
-    if (ws) {
-      ws.tabs = ws.tabs.filter((t) => t.id !== tabId);
-      if (ws.tabs.length === 0) {
-        // Always keep at least one tab
-        ws.tabs.push({
-          id: generateId('t'),
-          url: 'chrome://newtab/',
-          title: 'New Tab',
-          favIconUrl: '',
-          pinned: false,
-          index: 0,
-          groupId: null,
-          active: true
-        });
-      }
+    await this.mutate((state) => {
+      const ws = state.workspaces[workspaceId];
+      if (!ws) return SKIP_SAVE;
+      ws.tabs = ws.tabs.filter((t) => String(t.id) !== String(tabId));
+      if (ws.tabs.length === 0) ws.tabs.push(newTabEntry(0));
+      ws.tabs.forEach((t, i) => { t.index = i; });
+      pruneEmptyGroups(ws);
       ws.updatedAt = Date.now();
-      await this.saveWorkspaces(state.workspaces);
-    }
+      return true;
+    });
+    return { closed: true, live: false };
   },
+
+  // ---------------------------------------------------------------------------
+  // Tab group operations
+  // ---------------------------------------------------------------------------
 
   /**
    * Merge one tab into another tab's group (or create a new group with both)
    */
   async mergeTabsIntoGroup({ sourceWorkspaceId, sourceTabId, targetWorkspaceId, targetTabId }) {
-    if (!sourceTabId || !targetTabId || sourceTabId === targetTabId) {
+    if (!sourceTabId || !targetTabId || String(sourceTabId) === String(targetTabId)) {
       return { success: false, reason: 'invalid_tabs' };
     }
 
-    const state = await this.getState();
-    const targetWs = state.workspaces[targetWorkspaceId];
-    if (!targetWs) throw new Error(`Target workspace ${targetWorkspaceId} not found`);
-
-    // If source tab belongs to a different workspace, move it over first
+    let movedSourceId = sourceTabId;
     if (sourceWorkspaceId && sourceWorkspaceId !== targetWorkspaceId) {
-      await this.moveTabToWorkspace(sourceTabId, targetWorkspaceId);
+      const res = await this.moveTabToWorkspace(sourceTabId, targetWorkspaceId, sourceWorkspaceId);
+      movedSourceId = res.tabId || sourceTabId;
     }
 
-    const winId = await windowRegistry.getWindowForWorkspace(targetWorkspaceId);
-    if (winId !== null) {
-      // Target workspace is currently open in a window
-      try {
-        const liveTabs = await chrome.tabs.query({ windowId: winId });
-        let sourceLive = liveTabs.find((t) => t.id === sourceTabId || String(t.id) === String(sourceTabId));
-        let targetLive = liveTabs.find((t) => t.id === targetTabId || String(t.id) === String(targetTabId));
-
-        if (!targetLive) {
-          const tIdx = targetWs.tabs.findIndex((t) => t.id === targetTabId);
-          if (tIdx !== -1 && liveTabs[tIdx]) targetLive = liveTabs[tIdx];
-        }
-        if (!sourceLive) {
-          const sIdx = targetWs.tabs.findIndex((t) => t.id === sourceTabId);
-          if (sIdx !== -1 && liveTabs[sIdx]) sourceLive = liveTabs[sIdx];
-        }
-
-        if (sourceLive && targetLive) {
-          if (targetLive.groupId && targetLive.groupId !== -1) {
-            await chrome.tabs.group({ tabIds: sourceLive.id, groupId: targetLive.groupId });
-            return { success: true, groupId: targetLive.groupId, isNew: false };
-          } else if (sourceLive.groupId && sourceLive.groupId !== -1) {
-            await chrome.tabs.group({ tabIds: targetLive.id, groupId: sourceLive.groupId });
-            return { success: true, groupId: sourceLive.groupId, isNew: false };
-          } else {
-            const newGroupId = await chrome.tabs.group({ tabIds: [targetLive.id, sourceLive.id] });
-            return { success: true, groupId: newGroupId, isNew: true };
+    const ctx = await this.liveContext(targetWorkspaceId);
+    if (ctx) {
+      const sourceLive = await this.resolveLiveTab(ctx, movedSourceId);
+      const targetLive = await this.resolveLiveTab(ctx, targetTabId);
+      if (sourceLive && targetLive) {
+        let nativeGid;
+        let isNew = false;
+        if (isNativeGrouped(targetLive)) {
+          nativeGid = targetLive.groupId;
+          await chrome.tabs.group({ tabIds: [sourceLive.id], groupId: nativeGid });
+        } else if (isNativeGrouped(sourceLive)) {
+          nativeGid = sourceLive.groupId;
+          await chrome.tabs.group({ tabIds: [targetLive.id], groupId: nativeGid });
+        } else {
+          nativeGid = await chrome.tabs.group({ tabIds: [targetLive.id, sourceLive.id] });
+          isNew = true;
+          if (chrome.tabGroups) {
+            const ws = await this.getWorkspace(targetWorkspaceId);
+            const color = nextUnusedColor((ws?.groups || []).map((g) => g.color));
+            await chrome.tabGroups.update(nativeGid, { color }).catch(() => {});
           }
         }
-      } catch (err) {
-        console.warn('Live chrome.tabs.group failed, falling back to model update:', err);
+        await this.flushSync(targetWorkspaceId);
+        const maps = await windowRegistry.getLiveMaps(targetWorkspaceId);
+        return { success: true, groupId: this.persistentGroupIdFor(maps, nativeGid) || nativeGid, isNew, live: true };
       }
     }
 
-    // Closed workspace or fallback: update stored model directly
-    const currentState = await this.getState();
-    const currentTargetWs = currentState.workspaces[targetWorkspaceId];
-    if (!currentTargetWs) return { success: false };
+    // Closed workspace: update stored model directly
+    return this.mutate((state) => {
+      const ws = state.workspaces[targetWorkspaceId];
+      if (!ws) return SKIP_SAVE;
+      const targetTab = ws.tabs.find((t) => String(t.id) === String(targetTabId));
+      const sourceTab = ws.tabs.find((t) => String(t.id) === String(movedSourceId));
+      if (!targetTab || !sourceTab) return SKIP_SAVE;
 
-    const targetTab = currentTargetWs.tabs.find((t) => t.id === targetTabId);
-    const sourceTab = currentTargetWs.tabs.find((t) => t.id === sourceTabId);
-
-    if (!targetTab || !sourceTab) {
-      return { success: false, reason: 'tabs_not_found' };
-    }
-
-    let targetGid = targetTab.groupId || sourceTab.groupId;
-    let isNew = false;
-    if (!targetGid) {
-      targetGid = generateId('g');
-      isNew = true;
-      if (!currentTargetWs.groups) currentTargetWs.groups = [];
-      currentTargetWs.groups.push({
-        id: targetGid,
-        title: 'Group',
-        color: 'blue',
-        collapsed: false
-      });
-    }
-
-    targetTab.groupId = targetGid;
-    sourceTab.groupId = targetGid;
-    currentTargetWs.updatedAt = Date.now();
-
-    await this.saveWorkspaces(currentState.workspaces);
-    return { success: true, groupId: targetGid, isNew };
+      let gid = targetTab.groupId || sourceTab.groupId;
+      let isNew = false;
+      if (!gid) {
+        gid = generateId('g');
+        isNew = true;
+        ws.groups.push({
+          id: gid,
+          title: '',
+          color: nextUnusedColor(ws.groups.map((g) => g.color)),
+          collapsed: false
+        });
+      }
+      targetTab.groupId = gid;
+      sourceTab.groupId = gid;
+      keepGroupContiguous(ws, gid);
+      pruneEmptyGroups(ws);
+      ws.updatedAt = Date.now();
+      return { success: true, groupId: gid, isNew, live: false };
+    }).then((res) => res || { success: false, reason: 'tabs_not_found' });
   },
 
   /**
-   * Update title and/or color of a tab group within a workspace model
+   * Update title and/or color (and optionally collapsed state) of a tab group
    */
-  async updateTabGroup({ workspaceId, groupId, title, color }) {
-    const state = await this.getState();
-    const ws = state.workspaces[workspaceId];
-    if (!ws) return { success: false };
-
-    if (!ws.groups) ws.groups = [];
-    let group = ws.groups.find((g) => g.id === groupId);
-    if (!group) {
-      group = { id: groupId, title: title || 'Group', color: color || 'blue', collapsed: false };
-      ws.groups.push(group);
-    } else {
-      if (title !== undefined) group.title = title || 'Group';
-      if (color !== undefined) group.color = color;
+  async updateTabGroup({ workspaceId, groupId, title, color, collapsed }) {
+    const ctx = await this.liveContext(workspaceId);
+    const nativeGid = this.resolveNativeGroupId(ctx, groupId);
+    if (ctx && nativeGid != null && chrome.tabGroups) {
+      try {
+        const props = {};
+        if (title !== undefined) props.title = title || '';
+        if (color !== undefined && isValidColor(color)) props.color = color;
+        if (collapsed !== undefined) props.collapsed = Boolean(collapsed);
+        await chrome.tabGroups.update(nativeGid, props);
+        await this.flushSync(workspaceId);
+      } catch (err) {
+        console.warn('Live updateTabGroup failed, updating model:', err);
+      }
     }
 
-    ws.updatedAt = Date.now();
-    await this.saveWorkspaces(state.workspaces);
-    return { success: true, group };
+    const result = await this.mutate((state) => {
+      const ws = state.workspaces[workspaceId];
+      if (!ws) return SKIP_SAVE;
+      const persistentId = ctx && isNumericId(groupId) ? this.persistentGroupIdFor(ctx.maps, groupId) || String(groupId) : String(groupId);
+      const group = ws.groups.find((g) => g.id === persistentId);
+      if (!group) return SKIP_SAVE;
+      if (title !== undefined) group.title = String(title || '').trim();
+      if (color !== undefined && isValidColor(color)) group.color = color;
+      if (collapsed !== undefined) group.collapsed = Boolean(collapsed);
+      ws.updatedAt = Date.now();
+      return { success: true, group };
+    });
+    return result || { success: false };
   },
 
   /**
    * Add a tab to an existing group in a workspace
    */
   async addTabToGroup({ workspaceId, tabId, groupId }) {
-    if (!workspaceId || !tabId || !groupId) return { success: false };
+    if (!workspaceId || tabId == null || groupId == null) return { success: false };
 
-    const winId = await windowRegistry.getWindowForWorkspace(workspaceId);
-    if (winId !== null && chrome.tabs) {
-      try {
-        const liveTabs = await chrome.tabs.query({ windowId: winId });
-        const targetTab = liveTabs.find((t) => t.id === tabId || String(t.id) === String(tabId));
-        if (targetTab) {
-          const numGid = typeof groupId === 'number' ? groupId : parseInt(groupId, 10);
-          if (Number.isInteger(numGid) && numGid > 0) {
-            await chrome.tabs.group({ tabIds: targetTab.id, groupId: numGid });
-            return { success: true, groupId: numGid };
-          }
-        }
-      } catch (err) {
-        console.warn('Live addTabToGroup failed, updating model:', err);
-      }
+    const ctx = await this.liveContext(workspaceId);
+    const liveTab = await this.resolveLiveTab(ctx, tabId);
+    const nativeGid = this.resolveNativeGroupId(ctx, groupId);
+    if (liveTab && nativeGid != null) {
+      await chrome.tabs.group({ tabIds: [liveTab.id], groupId: nativeGid });
+      await this.flushSync(workspaceId);
+      return { success: true, groupId, live: true };
     }
 
-    const state = await this.getState();
-    const ws = state.workspaces[workspaceId];
-    if (!ws) return { success: false };
-
-    const tab = (ws.tabs || []).find((t) => t.id === tabId || String(t.id) === String(tabId));
-    if (tab) {
-      tab.groupId = groupId;
+    const result = await this.mutate((state) => {
+      const ws = state.workspaces[workspaceId];
+      if (!ws) return SKIP_SAVE;
+      const tab = ws.tabs.find((t) => String(t.id) === String(tabId));
+      if (!tab || !ws.groups.some((g) => g.id === String(groupId))) return SKIP_SAVE;
+      tab.groupId = String(groupId);
+      keepGroupContiguous(ws, tab.groupId);
+      pruneEmptyGroups(ws);
       ws.updatedAt = Date.now();
-      await this.saveWorkspaces(state.workspaces);
-      return { success: true, groupId };
-    }
-    return { success: false };
+      return { success: true, groupId: tab.groupId, live: false };
+    });
+    return result || { success: false };
   },
 
   /**
    * Remove a single tab from its group in a workspace
    */
   async removeTabFromGroup({ workspaceId, tabId }) {
-    if (!workspaceId || !tabId) return { success: false };
+    if (!workspaceId || tabId == null) return { success: false };
 
-    const winId = await windowRegistry.getWindowForWorkspace(workspaceId);
-    if (winId !== null && chrome.tabs && chrome.tabs.ungroup) {
-      try {
-        const liveTabs = await chrome.tabs.query({ windowId: winId });
-        const targetTab = liveTabs.find((t) => t.id === tabId || String(t.id) === String(tabId));
-        if (targetTab && targetTab.groupId && targetTab.groupId !== (chrome.tabGroups?.TAB_GROUP_ID_NONE ?? -1)) {
-          await chrome.tabs.ungroup(targetTab.id);
-        }
-      } catch (err) {
-        console.warn('Live removeTabFromGroup failed:', err);
+    const ctx = await this.liveContext(workspaceId);
+    const liveTab = await this.resolveLiveTab(ctx, tabId);
+    if (liveTab) {
+      if (isNativeGrouped(liveTab)) {
+        await chrome.tabs.ungroup([liveTab.id]);
+        await this.flushSync(workspaceId);
       }
+      return { success: true, live: true };
     }
 
-    const state = await this.getState();
-    const ws = state.workspaces[workspaceId];
-    if (!ws) return { success: false };
-
-    const tab = (ws.tabs || []).find((t) => t.id === tabId || String(t.id) === String(tabId));
-    if (tab) {
-      const prevGid = tab.groupId;
-      delete tab.groupId;
-
-      // If no more tabs in this group, clean up the group metadata
-      if (prevGid && ws.groups) {
-        const remainingInGroup = ws.tabs.filter((t) => t.groupId === prevGid || String(t.groupId) === String(prevGid));
-        if (remainingInGroup.length === 0) {
-          ws.groups = ws.groups.filter((g) => g.id !== prevGid && String(g.id) !== String(prevGid));
-        }
+    const result = await this.mutate((state) => {
+      const ws = state.workspaces[workspaceId];
+      if (!ws) return SKIP_SAVE;
+      const tab = ws.tabs.find((t) => String(t.id) === String(tabId));
+      if (!tab || !tab.groupId) return SKIP_SAVE;
+      const gid = tab.groupId;
+      tab.groupId = null;
+      // Ungrouped tab leaves the block: put it right after the group's last member
+      const members = ws.tabs.filter((t) => t.groupId === gid);
+      if (members.length) {
+        ws.tabs = ws.tabs.filter((t) => t !== tab);
+        const lastIdx = ws.tabs.lastIndexOf(members[members.length - 1]);
+        ws.tabs.splice(lastIdx + 1, 0, tab);
+        ws.tabs.forEach((t, i) => { t.index = i; });
       }
-
+      pruneEmptyGroups(ws);
       ws.updatedAt = Date.now();
-      await this.saveWorkspaces(state.workspaces);
-      return { success: true };
-    }
-    return { success: false };
+      return { success: true, live: false };
+    });
+    return result || { success: false };
   },
 
   /**
-   * Ungroup tabs belonging to a group within a workspace
+   * Ungroup all tabs belonging to a group within a workspace
    */
   async ungroupTabs({ workspaceId, groupId }) {
-    if (!workspaceId || !groupId) return { success: false };
+    if (!workspaceId || groupId == null) return { success: false };
 
-    const winId = await windowRegistry.getWindowForWorkspace(workspaceId);
-    if (winId !== null && chrome.tabs) {
-      try {
-        const liveTabs = await chrome.tabs.query({ windowId: winId });
-        const numGid = typeof groupId === 'number' ? groupId : parseInt(groupId, 10);
-        let tabIdsToUngroup = [];
-        if (Number.isInteger(numGid) && numGid > 0) {
-          tabIdsToUngroup = liveTabs.filter((t) => t.groupId === numGid).map((t) => t.id);
-        } else {
-          const state = await this.getState();
-          const ws = state.workspaces[workspaceId];
-          if (ws) {
-            const memberIds = new Set((ws.tabs || []).filter((t) => t.groupId === groupId || String(t.groupId) === String(groupId)).map((t) => t.id));
-            tabIdsToUngroup = liveTabs.filter((t) => memberIds.has(t.id)).map((t) => t.id);
-          }
-        }
-        if (tabIdsToUngroup.length > 0 && chrome.tabs.ungroup) {
-          await chrome.tabs.ungroup(tabIdsToUngroup);
-        }
-      } catch (err) {
-        console.warn('Live ungroupTabs failed:', err);
+    const ctx = await this.liveContext(workspaceId);
+    const nativeGid = this.resolveNativeGroupId(ctx, groupId);
+    if (ctx && nativeGid != null) {
+      const liveTabs = await chrome.tabs.query({ windowId: ctx.winId });
+      const ids = liveTabs.filter((t) => t.groupId === nativeGid).map((t) => t.id);
+      if (ids.length) {
+        await chrome.tabs.ungroup(ids);
+        await this.flushSync(workspaceId);
+        return { success: true, live: true };
       }
     }
 
-    const state = await this.getState();
-    const ws = state.workspaces[workspaceId];
-    if (ws) {
-      if (ws.groups) {
-        ws.groups = ws.groups.filter((g) => g.id !== groupId && String(g.id) !== String(groupId));
-      }
-      if (ws.tabs) {
-        ws.tabs.forEach((t) => {
-          if (t.groupId === groupId || String(t.groupId) === String(groupId)) {
-            delete t.groupId;
-          }
-        });
-      }
+    const result = await this.mutate((state) => {
+      const ws = state.workspaces[workspaceId];
+      if (!ws) return SKIP_SAVE;
+      const gid = String(groupId);
+      ws.groups = ws.groups.filter((g) => g.id !== gid);
+      ws.tabs.forEach((t) => {
+        if (t.groupId === gid) t.groupId = null;
+      });
       ws.updatedAt = Date.now();
-      await this.saveWorkspaces(state.workspaces);
-      return { success: true };
-    }
-    return { success: false };
+      return { success: true, live: false };
+    });
+    return result || { success: false };
   },
 
   /**
-   * Intelligently organize and cluster tabs into color-coded groups (Edge-style)
+   * Cluster ungrouped tabs into color-coded groups by site category
    */
   async organizeTabs({ workspaceId, windowId } = {}) {
-    let targetWinId = windowId;
+    let targetWinId = windowId || null;
     if (!targetWinId && workspaceId) {
       targetWinId = await windowRegistry.getWindowForWorkspace(workspaceId);
     }
-    if (!targetWinId) {
-      try {
-        const lastFocused = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-        targetWinId = lastFocused ? lastFocused.id : null;
-      } catch {}
-    }
-
-    const getCategoryForUrl = (urlStr) => {
-      try {
-        const u = new URL(urlStr);
-        const host = u.hostname.toLowerCase().replace(/^www\./, '');
-
-        if (/github\.com|gitlab\.com|stackoverflow\.com|developer\.mozilla\.org|npmjs\.com|localhost|vercel\.app|bitbucket\.org|codepen\.io|replit\.com/.test(host)) {
-          return { title: 'Development', color: 'blue' };
-        }
-        if (/youtube\.com|netflix\.com|spotify\.com|twitch\.tv|soundcloud\.com|vimeo\.com|disneyplus\.com|primevideo\.com|hulu\.com/.test(host)) {
-          return { title: 'Media', color: 'red' };
-        }
-        if (/reddit\.com|twitter\.com|x\.com|instagram\.com|facebook\.com|linkedin\.com|threads\.net|tiktok\.com|discord\.com/.test(host)) {
-          return { title: 'Social', color: 'purple' };
-        }
-        if (/docs\.google\.com|drive\.google\.com|sheets\.google\.com|notion\.so|slack\.com|trello\.com|atlassian\.net|figma\.com|canva\.com|office\.com/.test(host)) {
-          return { title: 'Productivity', color: 'green' };
-        }
-        if (/amazon\.|ebay\.|walmart\.|aliexpress\.|etsy\.|target\.|bestbuy\./.test(host)) {
-          return { title: 'Shopping', color: 'yellow' };
-        }
-        if (/google\.com\/search|bing\.com|chatgpt\.com|openai\.com|claude\.ai|gemini\.google\.com|perplexity\.ai/.test(host + u.pathname)) {
-          return { title: 'Search & AI', color: 'cyan' };
-        }
-        if (/wikipedia\.org|medium\.com|news\.ycombinator\.com|bbc\.com|nytimes\.com|cnn\.com|theverge\.com/.test(host)) {
-          return { title: 'News & Reading', color: 'orange' };
-        }
-
-        const parts = host.split('.');
-        const namePart = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
-        const capitalized = namePart.charAt(0).toUpperCase() + namePart.slice(1);
-        return { title: capitalized, color: 'blue' };
-      } catch {
-        return { title: 'Other', color: 'grey' };
-      }
-    };
 
     if (targetWinId && chrome.tabs) {
-      try {
-        const liveTabs = await chrome.tabs.query({ windowId: targetWinId });
-        const unpinned = liveTabs.filter((t) => !t.pinned);
-        if (unpinned.length >= 2) {
-          const clusters = new Map();
-
-          unpinned.forEach((t) => {
-            const url = t.url || t.pendingUrl || '';
-            if (!url || url.startsWith('chrome://') || url.startsWith('brave://')) return;
-            const cat = getCategoryForUrl(url);
-            if (!clusters.has(cat.title)) {
-              clusters.set(cat.title, { color: cat.color, tabIds: [] });
-            }
-            clusters.get(cat.title).tabIds.push(t.id);
-          });
-
-          let groupsCreated = 0;
-          for (const [title, info] of clusters.entries()) {
-            if (info.tabIds.length >= 2) {
-              const gid = await chrome.tabs.group({ tabIds: info.tabIds, windowId: targetWinId });
-              if (chrome.tabGroups) {
-                await chrome.tabGroups.update(gid, {
-                  title,
-                  color: info.color
-                });
-              }
-              groupsCreated++;
-            }
-          }
-
-          return { success: true, live: true, groupsCreated };
-        }
-      } catch (err) {
-        console.warn('workspaceManager.organizeTabs live error:', err);
+      const liveTabs = await chrome.tabs.query({ windowId: targetWinId });
+      const clusters = new Map();
+      for (const t of liveTabs) {
+        if (t.pinned || isNativeGrouped(t)) continue;
+        const url = t.url || t.pendingUrl || '';
+        if (!/^https?:/i.test(url)) continue;
+        const cat = categorizeUrl(url);
+        if (!clusters.has(cat.title)) clusters.set(cat.title, { color: cat.color, tabIds: [] });
+        clusters.get(cat.title).tabIds.push(t.id);
       }
+
+      let groupsCreated = 0;
+      for (const [title, info] of clusters.entries()) {
+        if (info.tabIds.length < 2) continue;
+        const gid = await chrome.tabs.group({ tabIds: info.tabIds, createProperties: { windowId: targetWinId } });
+        if (chrome.tabGroups) {
+          await chrome.tabGroups.update(gid, { title, color: info.color }).catch(() => {});
+        }
+        groupsCreated++;
+      }
+      return { success: true, live: true, groupsCreated };
     }
 
-    if (workspaceId) {
-      const state = await this.getState();
+    if (!workspaceId) return { success: false, reason: 'no_target' };
+
+    const result = await this.mutate((state) => {
       const ws = state.workspaces[workspaceId];
-      if (ws && ws.tabs && ws.tabs.length >= 2) {
-        const clusters = new Map();
-        ws.tabs.forEach((t) => {
-          if (t.pinned) return;
-          const cat = getCategoryForUrl(t.url || '');
-          if (!clusters.has(cat.title)) {
-            clusters.set(cat.title, { color: cat.color, tabs: [] });
-          }
-          clusters.get(cat.title).tabs.push(t);
-        });
-
-        const newGroups = [];
-        for (const [title, info] of clusters.entries()) {
-          if (info.tabs.length >= 2) {
-            const gid = generateId('g');
-            newGroups.push({
-              id: gid,
-              title,
-              color: info.color,
-              collapsed: false
-            });
-            info.tabs.forEach((t) => {
-              t.groupId = gid;
-            });
-          }
-        }
-
-        ws.groups = newGroups;
-        ws.updatedAt = Date.now();
-        await this.saveWorkspaces(state.workspaces);
-        return { success: true, live: false, groupsCreated: newGroups.length };
+      if (!ws || ws.tabs.length < 2) return SKIP_SAVE;
+      const clusters = new Map();
+      for (const t of ws.tabs) {
+        if (t.pinned || t.groupId || !/^https?:/i.test(t.url || '')) continue;
+        const cat = categorizeUrl(t.url);
+        if (!clusters.has(cat.title)) clusters.set(cat.title, { color: cat.color, tabs: [] });
+        clusters.get(cat.title).tabs.push(t);
       }
-    }
 
-    return { success: false, reason: 'no_tabs' };
+      let groupsCreated = 0;
+      for (const [title, info] of clusters.entries()) {
+        if (info.tabs.length < 2) continue;
+        const gid = generateId('g');
+        ws.groups.push({ id: gid, title, color: info.color, collapsed: false });
+        info.tabs.forEach((t) => { t.groupId = gid; });
+        keepGroupContiguous(ws, gid);
+        groupsCreated++;
+      }
+      if (!groupsCreated) return SKIP_SAVE;
+      ws.updatedAt = Date.now();
+      return { success: true, live: false, groupsCreated };
+    });
+    return result || { success: true, live: false, groupsCreated: 0 };
   }
 };
 
+/**
+ * Chrome keeps a group's tabs adjacent; mirror that in stored order so restore and
+ * display agree. Members are pulled together at the position of the first member.
+ */
+function keepGroupContiguous(ws, gid) {
+  const members = ws.tabs.filter((t) => t.groupId === gid);
+  if (members.length < 2) return;
+  const firstIdx = ws.tabs.findIndex((t) => t.groupId === gid);
+  const rest = ws.tabs.filter((t) => t.groupId !== gid);
+  const before = rest.filter((t) => ws.tabs.indexOf(t) < firstIdx);
+  const after = rest.filter((t) => ws.tabs.indexOf(t) > firstIdx);
+  ws.tabs = [...before, ...members, ...after];
+  ws.tabs.forEach((t, i) => { t.index = i; });
+}
+
+function pruneEmptyGroups(ws) {
+  const used = new Set(ws.tabs.map((t) => t.groupId).filter(Boolean));
+  ws.groups = (ws.groups || []).filter((g) => used.has(g.id));
+}
+
+const CATEGORY_RULES = [
+  { title: 'Development', color: 'blue', test: /(^|\.)(github\.com|gitlab\.com|stackoverflow\.com|stackexchange\.com|developer\.mozilla\.org|npmjs\.com|vercel\.app|vercel\.com|bitbucket\.org|codepen\.io|replit\.com|localhost)$/ },
+  { title: 'Media', color: 'red', test: /(^|\.)(youtube\.com|netflix\.com|spotify\.com|twitch\.tv|soundcloud\.com|vimeo\.com|disneyplus\.com|primevideo\.com|hulu\.com|hotstar\.com)$/ },
+  { title: 'Social', color: 'purple', test: /(^|\.)(reddit\.com|twitter\.com|x\.com|instagram\.com|facebook\.com|linkedin\.com|threads\.net|tiktok\.com|discord\.com|whatsapp\.com)$/ },
+  { title: 'Productivity', color: 'green', test: /(^|\.)(docs\.google\.com|drive\.google\.com|sheets\.google\.com|mail\.google\.com|calendar\.google\.com|notion\.so|slack\.com|trello\.com|atlassian\.net|figma\.com|canva\.com|office\.com|outlook\.com)$/ },
+  { title: 'Shopping', color: 'yellow', test: /(^|\.)(amazon\.[a-z.]+|ebay\.[a-z.]+|walmart\.com|aliexpress\.com|etsy\.com|target\.com|bestbuy\.com|flipkart\.com)$/ },
+  { title: 'Search & AI', color: 'cyan', test: /(^|\.)(bing\.com|chatgpt\.com|openai\.com|claude\.ai|gemini\.google\.com|perplexity\.ai|duckduckgo\.com|search\.brave\.com)$/ },
+  { title: 'News & Reading', color: 'orange', test: /(^|\.)(wikipedia\.org|medium\.com|news\.ycombinator\.com|bbc\.com|bbc\.co\.uk|nytimes\.com|cnn\.com|theverge\.com|substack\.com)$/ }
+];
+
+export function categorizeUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    const host = u.hostname.toLowerCase().replace(/^www\./, '');
+    if (/(^|\.)google\.[a-z.]+$/.test(host) && u.pathname.startsWith('/search')) {
+      return { title: 'Search & AI', color: 'cyan' };
+    }
+    for (const rule of CATEGORY_RULES) {
+      if (rule.test.test(host)) return { title: rule.title, color: rule.color };
+    }
+    const parts = host.split('.');
+    const namePart = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+    return { title: namePart.charAt(0).toUpperCase() + namePart.slice(1), color: 'grey' };
+  } catch {
+    return { title: 'Other', color: 'grey' };
+  }
+}

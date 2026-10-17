@@ -1,10 +1,51 @@
 /**
- * Data shapes, validation, and migration for Brave Workspaces
+ * Data shapes, validation, and migration for Workspaces
  */
 
-import { SCHEMA_VERSION, DEFAULT_SETTINGS } from './constants.js';
+import { SCHEMA_VERSION, DEFAULT_SETTINGS, SETTING_KEYS } from './constants.js';
 import { DEFAULT_COLOR, isValidColor } from './colors.js';
-import { generateId } from './utils.js';
+import { generateId, NEW_TAB_URL } from './utils.js';
+
+const MAX_NAME_LENGTH = 60;
+const MAX_INLINE_FAVICON = 2048;
+
+export function newTabEntry(index = 0) {
+  return {
+    id: generateId('t'),
+    url: NEW_TAB_URL,
+    title: 'New Tab',
+    favIconUrl: '',
+    pinned: false,
+    index,
+    groupId: null,
+    active: true
+  };
+}
+
+export function sanitizeName(name, fallback = 'Workspace') {
+  const trimmed = String(name ?? '').trim().slice(0, MAX_NAME_LENGTH);
+  return trimmed || fallback;
+}
+
+/**
+ * Keep only the first grapheme-ish chunk of an emoji/icon string.
+ */
+export function sanitizeIcon(icon) {
+  const value = String(icon ?? '').trim();
+  if (!value) return '';
+  return Array.from(value).slice(0, 2).join('');
+}
+
+/**
+ * Inline data: favicons can be tens of KB each; storing them for hundreds of tabs
+ * quickly fills storage. Large ones are dropped (the UI falls back to _favicon).
+ */
+export function sanitizeFavicon(favIconUrl) {
+  if (!favIconUrl || typeof favIconUrl !== 'string') return '';
+  if (favIconUrl.startsWith('chrome://') || favIconUrl.startsWith('brave://')) return '';
+  if (favIconUrl.startsWith('data:') && favIconUrl.length > MAX_INLINE_FAVICON) return '';
+  return favIconUrl;
+}
 
 /**
  * Factory for a new workspace
@@ -14,50 +55,44 @@ export function createWorkspaceModel({
   color = DEFAULT_COLOR,
   icon = '',
   tabs = [],
-  groups = []
+  groups = [],
+  window: windowInfo = null
 } = {}) {
   const now = Date.now();
-  const id = generateId('ws');
-
-  // If no tabs provided, default to a clean new tab
+  const sanitizedGroups = groups.map(sanitizeGroup);
+  const groupIds = new Set(sanitizedGroups.map((g) => g.id));
   const sanitizedTabs = tabs.length > 0
-    ? tabs.map((t, idx) => sanitizeTab(t, idx))
-    : [{
-        id: generateId('t'),
-        url: 'chrome://newtab/',
-        title: 'New Tab',
-        favIconUrl: '',
-        pinned: false,
-        index: 0,
-        groupId: null,
-        active: true
-      }];
+    ? tabs.map((t, idx) => sanitizeTab(t, idx, groupIds))
+    : [newTabEntry(0)];
 
   return {
-    id,
-    name: (name || 'Workspace').trim(),
+    id: generateId('ws'),
+    name: sanitizeName(name),
     color: isValidColor(color) ? color : DEFAULT_COLOR,
-    icon: icon || '',
+    icon: sanitizeIcon(icon),
     createdAt: now,
     updatedAt: now,
     lastOpenedAt: now,
     tabs: sanitizedTabs,
-    groups: groups.map(sanitizeGroup)
+    groups: sanitizedGroups,
+    window: sanitizeWindowInfo(windowInfo)
   };
 }
 
 /**
- * Sanitize single tab entry
+ * Sanitize single tab entry. When groupIds is given, references to unknown groups are dropped.
  */
-export function sanitizeTab(tab, index = 0) {
+export function sanitizeTab(tab, index = 0, groupIds = null) {
+  let groupId = tab.groupId != null && tab.groupId !== -1 && tab.groupId !== '' ? String(tab.groupId) : null;
+  if (groupId && groupIds && !groupIds.has(groupId)) groupId = null;
   return {
-    id: tab.id || generateId('t'),
-    url: tab.url || 'chrome://newtab/',
-    title: tab.title || 'New Tab',
-    favIconUrl: tab.favIconUrl || '',
+    id: tab.id ? String(tab.id) : generateId('t'),
+    url: tab.url || NEW_TAB_URL,
+    title: tab.title || tab.url || 'New Tab',
+    favIconUrl: sanitizeFavicon(tab.favIconUrl),
     pinned: Boolean(tab.pinned),
     index: typeof tab.index === 'number' ? tab.index : index,
-    groupId: tab.groupId || null,
+    groupId,
     active: Boolean(tab.active)
   };
 }
@@ -67,26 +102,67 @@ export function sanitizeTab(tab, index = 0) {
  */
 export function sanitizeGroup(group) {
   return {
-    id: group.id || generateId('g'),
-    title: (group.title || '').trim(),
+    id: group.id ? String(group.id) : generateId('g'),
+    title: String(group.title || '').trim(),
     color: isValidColor(group.color) ? group.color : 'grey',
-    collapsed: false
+    collapsed: Boolean(group.collapsed)
   };
 }
 
 /**
- * Ensure storage shape conforms to Schema V1
+ * Window placement saved alongside a workspace so it reopens where it was.
+ */
+export function sanitizeWindowInfo(info) {
+  if (!info || typeof info !== 'object') return null;
+  const state = ['normal', 'maximized', 'fullscreen'].includes(info.state) ? info.state : 'normal';
+  const num = (v) => (Number.isFinite(v) ? Math.round(v) : null);
+  const out = { state, left: num(info.left), top: num(info.top), width: num(info.width), height: num(info.height) };
+  if (out.width !== null && out.width < 200) out.width = null;
+  if (out.height !== null && out.height < 200) out.height = null;
+  return out;
+}
+
+export function sanitizeWorkspace(ws, id) {
+  const groups = Array.isArray(ws.groups) ? ws.groups.map(sanitizeGroup) : [];
+  const groupIds = new Set(groups.map((g) => g.id));
+  const tabs = Array.isArray(ws.tabs) ? ws.tabs.map((t, i) => sanitizeTab(t, i, groupIds)) : [];
+  // Groups without any member tab are dead weight
+  const usedGroupIds = new Set(tabs.map((t) => t.groupId).filter(Boolean));
+  const now = Date.now();
+  return {
+    id: ws.id || id,
+    name: sanitizeName(ws.name),
+    color: isValidColor(ws.color) ? ws.color : DEFAULT_COLOR,
+    icon: sanitizeIcon(ws.icon),
+    createdAt: ws.createdAt || now,
+    updatedAt: ws.updatedAt || now,
+    lastOpenedAt: ws.lastOpenedAt || ws.updatedAt || now,
+    tabs: tabs.length > 0 ? tabs : [newTabEntry(0)],
+    groups: groups.filter((g) => usedGroupIds.has(g.id)),
+    window: sanitizeWindowInfo(ws.window)
+  };
+}
+
+export function sanitizeSettings(raw = {}) {
+  const settings = { ...DEFAULT_SETTINGS };
+  for (const key of SETTING_KEYS) {
+    if (raw && raw[key] !== undefined && typeof raw[key] === typeof DEFAULT_SETTINGS[key]) {
+      settings[key] = raw[key];
+    }
+  }
+  if (!['manual', 'recent'].includes(settings.sortOrder)) settings.sortOrder = 'manual';
+  return settings;
+}
+
+/**
+ * Ensure storage shape conforms to the current schema (v1 data migrates in place)
  */
 export function migrateStorageData(raw = {}) {
   const data = raw || {};
-  const version = data.schemaVersion || 0;
 
   const result = {
     schemaVersion: SCHEMA_VERSION,
-    settings: {
-      ...DEFAULT_SETTINGS,
-      ...(data.settings || {})
-    },
+    settings: sanitizeSettings(data.settings),
     workspaces: {},
     workspaceOrder: []
   };
@@ -94,23 +170,14 @@ export function migrateStorageData(raw = {}) {
   if (data.workspaces && typeof data.workspaces === 'object') {
     for (const [id, ws] of Object.entries(data.workspaces)) {
       if (ws && typeof ws === 'object' && ws.name) {
-        result.workspaces[id] = {
-          id: ws.id || id,
-          name: ws.name || 'Workspace',
-          color: isValidColor(ws.color) ? ws.color : DEFAULT_COLOR,
-          icon: ws.icon || '',
-          createdAt: ws.createdAt || Date.now(),
-          updatedAt: ws.updatedAt || Date.now(),
-          lastOpenedAt: ws.lastOpenedAt || Date.now(),
-          tabs: Array.isArray(ws.tabs) ? ws.tabs.map(sanitizeTab) : [],
-          groups: Array.isArray(ws.groups) ? ws.groups.map(sanitizeGroup) : []
-        };
+        const clean = sanitizeWorkspace(ws, id);
+        result.workspaces[clean.id] = clean;
       }
     }
   }
 
   if (Array.isArray(data.workspaceOrder)) {
-    result.workspaceOrder = data.workspaceOrder.filter((id) => Boolean(result.workspaces[id]));
+    result.workspaceOrder = [...new Set(data.workspaceOrder)].filter((id) => Boolean(result.workspaces[id]));
   }
 
   // Ensure all existing workspace IDs are present in order array
@@ -127,7 +194,7 @@ export function migrateStorageData(raw = {}) {
  * Validate imported payload
  */
 export function validateImportPayload(payload) {
-  if (!payload || typeof payload !== 'object') {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('Import data must be a valid JSON object.');
   }
 
@@ -135,5 +202,9 @@ export function validateImportPayload(payload) {
     throw new Error('Invalid format: missing workspaces object.');
   }
 
-  return migrateStorageData(payload);
+  const migrated = migrateStorageData(payload);
+  if (Object.keys(migrated.workspaces).length === 0) {
+    throw new Error('The file does not contain any workspaces.');
+  }
+  return migrated;
 }
