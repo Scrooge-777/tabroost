@@ -23,6 +23,8 @@ import {
 import { isValidColor, nextUnusedColor } from '../shared/colors.js';
 import { windowRegistry } from './window-registry.js';
 import { isNativeGrouped } from './group-sync.js';
+// Circular with tab-sync.js; only used at call time. (Service workers forbid dynamic import().)
+import { tabSync } from './tab-sync.js';
 import { generateId, createLock, NEW_TAB_URL, sanitizeRestoreUrl } from '../shared/utils.js';
 
 const withLock = createLock();
@@ -423,7 +425,6 @@ export const workspaceManager = {
   },
 
   async flushSync(workspaceId) {
-    const { tabSync } = await import('./tab-sync.js');
     await tabSync.flush(workspaceId);
   },
 
@@ -573,7 +574,8 @@ export const workspaceManager = {
           nativeGid = sourceLive.groupId;
           await chrome.tabs.group({ tabIds: [targetLive.id], groupId: nativeGid });
         } else {
-          nativeGid = await chrome.tabs.group({ tabIds: [targetLive.id, sourceLive.id] });
+          // Without windowId Chrome creates the group in the *focused* window and moves the tabs there
+          nativeGid = await chrome.tabs.group({ tabIds: [targetLive.id, sourceLive.id], createProperties: { windowId: ctx.winId } });
           isNew = true;
           if (chrome.tabGroups) {
             const ws = await this.getWorkspace(targetWorkspaceId);

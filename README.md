@@ -1,162 +1,93 @@
 # Workspaces
 
-> An Edge-style Workspaces + Tab Groups extension for Brave and Chromium browsers (Manifest V3).
+Edge-style workspaces for Brave and Chrome (Manifest V3).
 
-![Workspaces](assets/icons/icon-128.png)
-
-A workspace is a **named, color-tagged, persistent set of tabs bound to one browser window**. When you switch between projects, tasks, or subjects, each workspace manages its own window, tabs, and native tab groups seamlessly.
-
----
+A workspace is a **named, colored set of tabs and tab groups that lives in its own window**. Close the window when you're done; reopen the workspace later and every tab, pinned tab, tab group (with its color and collapsed state), and the window's size come back exactly as they were.
 
 ## Features
 
-- **Window-bound Workspaces**: Each workspace opens in its own window. Clicking an already-open workspace immediately focuses its window.
-- **Side Panel Integration**: Edge-style side panel (`chrome.sidePanel`) accessible anytime via toolbar icon or `Ctrl+Shift+W`.
-- **Automatic Tab Sync**: Debounced (400ms) full-window snapshotting to `chrome.storage.local`. Survives unexpected crashes and browser restarts.
-- **Native Tab Groups**: Recreates native Chromium `chrome.tabGroups` with titles, colors, and collapsed states.
-- **Startup Recovery**: Intelligently rebinds restored browser windows after restart using Jaccard URL-overlap matching (no duplicate windows).
-- **Service-Worker Resilient**: Powered by `chrome.storage.session` for window bindings; retains state across MV3 idle terminations.
-- **Drag-and-Drop**:
-  - Reorder workspaces in the side panel.
-  - Drag individual tabs across workspaces.
-- **Search & Quick Preview**: Expand workspaces in the panel to inspect, open, or close individual tabs without leaving your current window.
-- **Backup & Restore**: Export and import full workspace configurations via JSON.
-- **Privacy First**: Zero external telemetry, zero network tracking, runs 100% locally.
+- **One window per workspace.** Opening a workspace that's already open just focuses its window.
+- **Saved automatically.** Tab and group changes in a workspace window are saved within half a second. Windows that aren't workspaces are never touched.
+- **Tab groups.** Groups are saved and restored natively, including their names, colors and collapsed state. You can drag one tab onto another in the panel to group them, rename or recolor groups, and pop tabs out.
+- **Manage closed workspaces.** Expand any workspace to see its tabs. You can open, close or move tabs between workspaces, and drag them into groups, without opening the workspace first.
+- **Fast switching.** Use the toolbar popup or the side panel, `Alt+Shift+W`, the "Back to …" chip, or an optional shortcut for *switch to previous workspace*.
+- **Search** across workspace names, tab titles and URLs.
+- **Undo delete**, automatic **backups** (the last 10 snapshots, taken every few hours and before any import, reset or restore), and JSON **export/import** (merge or replace).
+- **Reconnect after restart.** When the browser restores its windows, they are matched back to their workspaces by URL overlap.
+- **Light and dark themes**, keyboard navigation, and screen-reader labels.
+- **Optional on-page indicators.** You can turn on a workspace pill button and an accent border on web pages. Both are off by default. Site access is requested only when you turn one on, so the extension needs **no website permissions** by default.
 
----
+## Install (unpacked)
 
-## Visual Accents & Theming
+1. Open `brave://extensions` (or `chrome://extensions`).
+2. Turn on **Developer mode**.
+3. Click **Load unpacked** and select this folder (`S:\Works\Projects\extension\Workspaces`).
+4. Pin **Workspaces** to the toolbar.
 
-Extensions in Chromium cannot directly style the OS or browser title bar. To provide clear visual distinction, Workspaces uses a multi-tier visual cue system:
+## Using it
 
-1. **Toolbar Action Badge**: Colored badge dot matching the workspace color for the active window.
-2. **Side Panel Card Accent**: The current workspace is highlighted with a 4px colored accent bar and subtle background tint.
-3. **Optional Top Accent Border**: Injects a sleek 3px colored accent bar at the very top of http(s) pages (can be toggled in Options).
-
----
-
-## Installation (Unpacked)
-
-1. Open Brave and navigate to `brave://extensions` (or `chrome://extensions`).
-2. Toggle on **Developer mode** in the top right corner.
-3. Click the **Load unpacked** button.
-4. Select this directory (`S:\Works\Projects\extension\GROTB`).
-5. Pin the **Workspaces** extension to your browser toolbar.
-6. Click the icon or press `Ctrl+Shift+W` to open the side panel!
-
----
-
-## Architecture & Data Flow
-
-```
-┌────────────────────────────────────────────────────────┐
-│                   Side Panel UI                        │
-│   (panel.js, components: cards, tab-list, context menu) │
-└───────────────────────┬────────────────────────────────┘
-                        │ chrome.runtime.sendMessage
-                        ▼
-┌────────────────────────────────────────────────────────┐
-│           Background Service Worker (MV3)             │
-│  ┌──────────────────┐  ┌─────────────────────────────┐ │
-│  │  window-opener   │  │        tab-sync             │ │
-│  └────────┬─────────┘  └─────────────┬───────────────┘ │
-│           │                          │                 │
-│           ▼                          ▼                 │
-│  ┌──────────────────┐  ┌─────────────────────────────┐ │
-│  │ window-registry  │  │      group-sync             │ │
-│  │ (storage.session)│  │   (chrome.tabGroups)        │ │
-│  └──────────────────┘  └─────────────────────────────┘ │
-└───────────────────────┬────────────────────────────────┘
-                        │ Persist / Restore
-                        ▼
-┌────────────────────────────────────────────────────────┐
-│        chrome.storage.local (Schema Version 1)         │
-│         • workspaces    • workspaceOrder   • settings  │
-└────────────────────────────────────────────────────────┘
-```
-
-### Storage Split: Local vs. Session
-- **`chrome.storage.local`**: Survives browser restarts. Stores workspace names, colors, saved tabs, tab groups, and user settings.
-- **`chrome.storage.session`**: Preserved across service worker sleeps, but wiped on browser exit. Holds dynamic bindings between temporary `windowId`s and persistent `workspaceId`s, active workspace pointers, and the `suppressSync` lock.
-
-### The `suppressSync` Lock
-When restoring 20+ tabs and tab groups in a newly created window, `chrome.tabs.onCreated` and `chrome.tabs.onUpdated` fire rapidly. Setting `suppressSync = true` during window creation prevents thrashing and race conditions, ensuring tabs restore in perfect order.
-
----
-
-## Brave-Specific Considerations Handled
-
-- **Empty / Privacy-Stripped Favicons**: Brave Shields may block standard tab `favIconUrl` properties. We fall back to the Chromium `_favicon/?pageUrl=...` API and generated letter-tile initials.
-- **Restricted Internal Schemes**: `brave://` and `chrome://` URLs are handled safely during window restoration to prevent browser navigation exceptions.
-- **Session Restore Timing**: Brave restores previously open windows before extension startup handlers settle. Startup recovery introduces a 1500ms settling pause before running Jaccard overlap matching.
-- **Sync & Profile Deduplication**: Enforces a strict "one window per workspace, first match wins" rule.
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Description |
+| Where | What |
 |---|---|
-| `Ctrl+Shift+W` | Open workspace side panel switcher |
-| `Ctrl+Shift+N` | Create a new workspace |
+| Toolbar icon | Popup switcher. Its panel button opens the side panel. |
+| Window bar (top of panel) | Shows whether this window is a workspace. **Save** turns an unsaved window into one. |
+| Workspace row | Click to switch (opens or focuses its window). Use the chevron to show its tabs and `⋯` (or right-click) for actions. |
+| *This window* tab | The current window's live tabs. Drag a tab onto another to group them, or use **Auto-group** to group by site category. |
+| Page right-click | **Move tab to workspace**, **Save this window as a workspace**. |
 
-*Shortcuts can be customized at `brave://extensions/shortcuts`.*
+### Keyboard
 
----
+| Shortcut | Action |
+|---|---|
+| `Alt+Shift+W` | Open the workspace switcher |
+| `Alt+Shift+N` | New workspace |
+| *(unset)* | Switch to the previous workspace. Assign it at `brave://extensions/shortcuts`. |
+| `/` | Search (in the panel) |
+| `N` | New workspace (in the panel) |
+| `↑` `↓` `Enter` | Move between workspaces and open one |
+| `→` `←` | Show or hide a workspace's tabs |
+| `F2` / `Del` | Edit or delete the focused workspace |
 
-## Folder Structure
+## Architecture
 
 ```
-GROTB/
-├── manifest.json
-├── README.md
-├── .gitignore
-├── assets/
-│   └── icons/
-│       ├── icon-16.png
-│       ├── icon-32.png
-│       ├── icon-48.png
-│       └── icon-128.png
-├── src/
-│   ├── background/
-│   │   ├── service-worker.js     # Entry point & lifecycle listeners
-│   │   ├── workspace-manager.js  # CRUD operations & persistence
-│   │   ├── window-registry.js    # windowId <-> workspaceId session binding
-│   │   ├── tab-sync.js           # Debounced window tab & group synchronization
-│   │   ├── window-opener.js      # Window creation, tab group restore & focus
-│   │   ├── group-sync.js         # chrome.tabGroups serialization & restore
-│   │   ├── startup-recovery.js   # URL Jaccard matching on restart
-│   │   └── router.js             # runtime.onMessage command dispatcher
-│   ├── shared/
-│   │   ├── constants.js          # Storage keys, settings, message types
-│   │   ├── colors.js             # 9 workspace colors mapped to tabGroups
-│   │   ├── storage.js            # Async chrome.storage wrapper
-│   │   ├── schema.js             # Data models & validation
-│   │   ├── utils.js              # IDs, debounce, deepEqual, URL normalization
-│   │   └── messages.js           # Typed messaging helpers
-│   ├── sidepanel/
-│   │   ├── panel.html
-│   │   ├── panel.css
-│   │   ├── panel.js
-│   │   └── components/
-│   │       ├── workspace-card.js # Workspace row component
-│   │       ├── tab-list.js       # Expandable tab preview list
-│   │       ├── color-picker.js   # Color swatch selector
-│   │       └── context-menu.js   # Action context menu
-│   ├── options/
-│   │   ├── options.html
-│   │   ├── options.css
-│   │   └── options.js            # Settings, JSON backup & restore
-│   └── content/
-│       └── accent-border.js      # Optional colored top border on web pages
-└── test/
-    ├── manual-checklist.md
-    └── fixtures/
-        └── sample-workspaces.json
+src/
+├── background/                 MV3 service worker (ES modules)
+│   ├── service-worker.js       Entry: listeners, commands, derived UI refresh
+│   ├── router.js               runtime.onMessage → actions
+│   ├── workspace-manager.js    State, CRUD, tab & group operations (locked writes)
+│   ├── window-registry.js      windowId ↔ workspaceId bindings + live ID maps (storage.session)
+│   ├── tab-sync.js             Debounced snapshots of workspace windows
+│   ├── window-opener.js        Open/restore/focus/close workspace windows
+│   ├── group-sync.js           Native tab group restore
+│   ├── startup-recovery.js     Rebind restored windows after a browser restart
+│   ├── badge.js                Toolbar badge for the focused window
+│   ├── context-menus.js        Page / toolbar menus
+│   ├── backups.js              Automatic local backups (chrome.alarms)
+│   └── page-features.js        Dynamic registration of the optional page script
+├── content/page-indicator.js   Optional pill + accent border (shadow DOM)
+├── sidepanel/                  Panel, popup and flyout UI (same app, three modes)
+│   └── components/             Cards, tab tree, menus, dialogs, toasts, …
+├── options/                    Settings page
+└── shared/                     Constants, schema/migration, colors, utils
 ```
 
----
+**Key design points**
+
+- **Storage.** Workspaces live in `chrome.storage.local`, which survives restarts. Window bindings live in `chrome.storage.session`, which survives worker sleep but is cleared on browser exit. Every write goes through a lock in `workspaceManager.mutate()`, so tab sync and UI actions can't overwrite each other.
+- **Stable IDs.** Saved tabs and groups have persistent string IDs. While a workspace is open, `window-registry` keeps a map from those IDs to the live Chrome tab and group IDs. Every panel action on an open workspace goes through that map, so clicking or closing a tab in the panel acts on the real tab instead of opening a duplicate.
+- **Schema v2.** Version 1 data migrates automatically. Unknown settings are dropped, references to missing groups are cleaned up, and oversized inline favicons are removed.
+
+## Development
+
+```bash
+npm test                 # import check + 43 logic tests against a chrome.* mock
+npm run test:browser     # loads the extension in headless Brave via playwright-core
+```
+
+The browser test needs `playwright-core` installed or pointed to with `PLAYWRIGHT=<path>`. Point `BROWSER=<path>` at Brave or Chrome if it isn't in the default location. Screenshots are written to a temp folder, or to the folder given as the first argument.
+
+See `test/manual-checklist.md` for the hands-on test pass.
 
 ## License
 
-MIT License.
+MIT

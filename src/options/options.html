@@ -1,136 +1,136 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-mode="options">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Workspaces Settings</title>
+  <meta name="color-scheme" content="light dark">
+  <title>Workspaces · Settings</title>
   <link rel="stylesheet" href="options.css">
+  <script type="module" src="options.js"></script>
 </head>
 <body>
-  <div class="options-container">
-    <header class="options-header">
-      <div class="header-brand">
-        <svg class="brand-icon-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" width="22" height="22" aria-hidden="true">
-          <path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v8A2.5 2.5 0 0 0 4.5 15h8a2.5 2.5 0 0 0 2.5-2.5v-8A2.5 2.5 0 0 0 12.5 2zM3 12.5V6h11v6.5c0 .83-.67 1.5-1.5 1.5h-8A1.5 1.5 0 0 1 3 12.5M3 5v-.5C3 3.67 3.67 3 4.5 3h8c.83 0 1.5.67 1.5 1.5V5zm4.5 13a2.5 2.5 0 0 1-2.45-2h1.04c.2.58.76 1 1.41 1H14a3 3 0 0 0 3-3V7.5c0-.65-.42-1.2-1-1.41V5.05a2.5 2.5 0 0 1 2 2.45V14a4 4 0 0 1-4 4z" fill="#0078D4"/>
-        </svg>
-        <h1>Workspaces</h1>
-      </div>
-      <p class="subtitle">Edge-style Workspaces and persistent tab groups</p>
+  <div class="page">
+    <header class="page-head">
+      <div class="brand" data-logo></div>
+      <p class="muted">Edge-style workspaces for Brave and Chrome</p>
     </header>
 
-    <main class="options-main">
-      <!-- General Settings -->
-      <section class="settings-card">
-        <h2>General Behavior</h2>
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-title">Startup Window Recovery</span>
-            <span class="setting-desc">Automatically rebind restored browser windows to their workspaces after restart.</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="setting-restore-startup">
-            <span class="slider"></span>
-          </label>
-        </div>
+    <main class="sections">
+      <section class="card" aria-labelledby="h-general">
+        <h2 id="h-general">General</h2>
 
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-title">Close Window on Switch</span>
-            <span class="setting-desc">Close the current workspace window when switching to another workspace.</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="setting-close-on-switch">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Reconnect windows after restart</span>
+            <span class="row-desc">When the browser restores your windows, match them back to their workspaces by their tabs.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="restoreOnStartup">
+        </label>
 
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-title">Confirm Workspace Deletion</span>
-            <span class="setting-desc">Show a confirmation prompt before deleting any workspace.</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="setting-confirm-delete">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Close the old window when switching</span>
+            <span class="row-desc">Switching workspace closes the previous workspace's window (it stays saved).</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="closeWindowOnWorkspaceSwitch">
+        </label>
 
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-title">Auto-Sync New Tabs</span>
-            <span class="setting-desc">Automatically sync any newly opened or closed tab in the active window directly with the active workspace.</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="setting-auto-sync-tabs">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Ask before deleting a workspace</span>
+            <span class="row-desc">Deleting can always be undone from the notification right after.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="confirmDelete">
+        </label>
 
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-title">Drag Tab to Merge into Tab Group</span>
-            <span class="setting-desc">When moving or dragging one tab over another tab on the tab bar, automatically merge them into a tab group (Edge-style).</span>
-          </div>
-          <label class="toggle-switch">
-            <input type="checkbox" id="setting-drag-group-tabs">
-            <span class="slider"></span>
-          </label>
-        </div>
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Workspace order</span>
+            <span class="row-desc">Custom order lets you drag workspaces around; Recent puts the last used first.</span>
+          </span>
+          <select class="select" data-setting="sortOrder">
+            <option value="manual">Custom</option>
+            <option value="recent">Recently used</option>
+          </select>
+        </label>
       </section>
 
-      <!-- Backup & Restore -->
-      <section class="settings-card">
-        <h2>Backup & Restore</h2>
-        <p class="section-desc">Export your workspaces and tabs to JSON for backups or transferring to another profile/device.</p>
+      <section class="card" aria-labelledby="h-pages">
+        <h2 id="h-pages">On web pages</h2>
+        <p class="card-desc">Optional. These need permission to run on websites, which is only requested when you turn one on.</p>
 
-        <div class="actions-row">
-          <button id="btn-export-json" class="btn primary">
-            <span>📥</span> Export Workspaces (JSON)
-          </button>
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Workspace button on pages</span>
+            <span class="row-desc">A small pill in the top-left corner showing the current workspace. Click it to switch.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="showPagePill" data-needs-sites>
+        </label>
 
-          <label class="btn secondary file-input-label">
-            <span>📤</span> Import Workspaces
-            <input type="file" id="file-import-json" accept=".json" style="display: none;">
-          </label>
-        </div>
-
-        <div id="import-status" class="status-msg hidden"></div>
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Accent border</span>
+            <span class="row-desc">A thin line in the workspace color across the top of every page.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="accentBorder" data-needs-sites>
+        </label>
       </section>
 
-      <!-- Keyboard Shortcuts -->
-      <section class="settings-card">
-        <h2>Keyboard Shortcuts</h2>
-        <div class="shortcut-list">
-          <div class="shortcut-item">
-            <span>Open workspace switcher</span>
-            <kbd>Ctrl+Shift+W</kbd>
-          </div>
-          <div class="shortcut-item">
-            <span>New workspace</span>
-            <kbd>Ctrl+Shift+N</kbd>
-          </div>
+      <section class="card" aria-labelledby="h-backup">
+        <h2 id="h-backup">Backups</h2>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Automatic backups</span>
+            <span class="row-desc">Keeps the last 10 snapshots on this device (every few hours and before imports, resets and restores).</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="autoBackup">
+        </label>
+
+        <div class="backup-head">
+          <span class="row-title">Snapshots</span>
+          <button type="button" class="btn is-sm" id="btn-backup-now">Back up now</button>
         </div>
-        <p class="section-hint">Customize shortcuts in <code>brave://extensions/shortcuts</code></p>
+        <ul class="backup-list" id="backup-list"><li class="muted">Loading…</li></ul>
       </section>
 
-      <!-- Danger Zone -->
-      <section class="settings-card danger-zone">
-        <h2>Danger Zone</h2>
-        <div class="setting-row">
-          <div class="setting-info">
-            <span class="setting-title">Reset All Workspaces</span>
-            <span class="setting-desc">Permanently erase all saved workspaces, tab histories, and settings.</span>
-          </div>
-          <button id="btn-reset-all" class="btn danger">Reset All Data</button>
+      <section class="card" aria-labelledby="h-transfer">
+        <h2 id="h-transfer">Export &amp; import</h2>
+        <p class="card-desc">Move workspaces to another profile or device as a JSON file.</p>
+        <div class="actions">
+          <button type="button" class="btn is-primary" id="btn-export">Export workspaces</button>
+          <label class="btn" for="file-import">Import from file…</label>
+          <input type="file" id="file-import" accept="application/json,.json" hidden>
+        </div>
+        <fieldset class="radio-row">
+          <legend class="muted">When importing</legend>
+          <label class="check"><input type="radio" name="import-mode" value="merge" checked><span>Add to my workspaces</span></label>
+          <label class="check"><input type="radio" name="import-mode" value="replace"><span>Replace all workspaces</span></label>
+        </fieldset>
+      </section>
+
+      <section class="card" aria-labelledby="h-keys">
+        <h2 id="h-keys">Keyboard shortcuts</h2>
+        <ul class="shortcut-list" id="shortcut-list"></ul>
+        <div class="actions">
+          <button type="button" class="btn is-sm" id="btn-shortcuts">Change shortcuts</button>
+        </div>
+        <p class="card-desc">In the panel: <kbd>/</kbd> search · <kbd>N</kbd> new workspace · <kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>F2</kbd> edit · <kbd>Del</kbd> delete</p>
+      </section>
+
+      <section class="card is-danger" aria-labelledby="h-danger">
+        <h2 id="h-danger">Reset</h2>
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Delete all workspaces and settings</span>
+            <span class="row-desc">A backup is taken first, so this can be undone from Backups above.</span>
+          </span>
+          <button type="button" class="btn is-danger" id="btn-reset">Reset everything</button>
         </div>
       </section>
     </main>
 
-    <footer class="options-footer">
-      <span>Workspaces v0.2.0 • Manifest V3</span>
-    </footer>
+    <footer class="page-foot muted" id="version"></footer>
   </div>
-
-  <script type="module" src="options.js"></script>
 </body>
 </html>

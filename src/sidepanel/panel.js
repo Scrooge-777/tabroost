@@ -1,868 +1,760 @@
 /**
- * Side Panel Main Controller — Coordinates UI rendering, user actions, and background sync
+ * Side Panel / Popup / Flyout controller — coordinates rendering, user actions,
+ * and background sync. The same page runs in three modes:
+ *   panel  — chrome.sidePanel
+ *   popup  — toolbar action popup
+ *   flyout — iframe opened from the optional on-page pill
  */
 
-import { MESSAGE_TYPES } from '../shared/constants.js';
+import { MESSAGE_TYPES, STORAGE_KEYS } from '../shared/constants.js';
 import { sendBackgroundMessage } from '../shared/messages.js';
+import { applyColorVars, nextUnusedColor } from '../shared/colors.js';
+import { debounce, escapeHtml, pluralize } from '../shared/utils.js';
+import { ICONS } from './components/icons.js';
 import { renderWorkspaceCard } from './components/workspace-card.js';
-import { showContextMenu } from './components/context-menu.js';
-import { renderColorPicker } from './components/color-picker.js';
+import { describeWorkspace } from './components/tab-tree.js';
+import { showMenu, showMenuForButton, isMenuOpen, onMenuClosed } from './components/context-menu.js';
 import { LiveTabsView } from './components/live-tabs-view.js';
-import { showNamePrompt } from './components/group-name-prompt.js';
+import { showNamePrompt, isNamePromptOpen } from './components/group-name-prompt.js';
+import { openWorkspaceDialog, confirmDialog } from './components/dialogs.js';
+import { toast, toastError } from './components/toast.js';
+
+const MODE = new URLSearchParams(location.search).get('mode') || document.documentElement.dataset.mode || 'panel';
+document.documentElement.dataset.mode = MODE;
+const IS_TRANSIENT = MODE === 'popup' || MODE === 'flyout';
+
+const send = (type, payload) => sendBackgroundMessage(type, payload);
 
 class SidePanelApp {
-  constructor() {
-    this.currentWindowId = null;
+  constructor(root) {
+    this.root = root;
+    this.windowId = null;
     this.currentWorkspaceId = null;
-    this.activeWorkspaceId = null;
+    this.previousWorkspaceId = null;
     this.workspaces = {};
     this.workspaceOrder = [];
     this.bindings = {};
     this.settings = {};
-    this.expandedWorkspaceIds = new Set();
-    this.searchQuery = '';
-    this.pendingDeleteWorkspace = null;
-    this.currentTabCount = 1;
-    this.currentMode = 'workspaces'; // 'workspaces' | 'open-tabs'
+    this.windowTabCount = 0;
 
-    // DOM Elements
-    this.listContainer = document.getElementById('workspace-list');
-    this.searchInput = document.getElementById('workspace-search');
-    this.searchSection = document.getElementById('search-section');
-    this.navBtnWorkspaces = document.getElementById('nav-btn-workspaces');
-    this.navBtnOpenTabs = document.getElementById('nav-btn-open-tabs');
-    this.navOpenTabsCount = document.getElementById('nav-open-tabs-count');
-    this.windowTabsSection = document.getElementById('window-tabs-section');
-    this.windowTabsList = document.getElementById('window-tabs-list');
+    this.view = 'workspaces';
+    this.query = '';
+    this.expanded = new Set();
+    this.groupExpanded = new Map(); // `${wsId}:${groupId}` -> boolean
+    this.pendingRender = false;
+    this.loaded = false;
 
-    this.windowStatusDot = document.getElementById('window-status-dot');
-    this.windowStatusText = document.getElementById('window-status-text');
-    this.btnSaveCurrentWindow = document.getElementById('btn-save-current-window');
-    this.btnNewWorkspace = document.getElementById('btn-new-workspace');
-    this.btnOpenOptions = document.getElementById('btn-open-options');
-
-    // Modals
-    this.modalNew = document.getElementById('modal-new-workspace');
-    this.formNew = document.getElementById('form-new-workspace');
-    this.newWsNameInput = document.getElementById('new-ws-name');
-    this.newWsFromCurrent = document.getElementById('new-ws-from-current');
-    this.newWsColorContainer = document.getElementById('new-ws-color-container');
-
-    this.modalRename = document.getElementById('modal-rename-workspace');
-    this.formRename = document.getElementById('form-rename-workspace');
-    this.renameWsId = document.getElementById('rename-ws-id');
-    this.renameWsName = document.getElementById('rename-ws-name');
-    this.editWsColorContainer = document.getElementById('edit-ws-color-container');
-
-    this.modalDelete = document.getElementById('modal-delete-workspace');
-    this.deletePromptText = document.getElementById('delete-prompt-text');
-    this.deleteDontAskAgain = document.getElementById('delete-dont-ask-again');
-    this.btnConfirmDelete = document.getElementById('btn-confirm-delete');
-
-    // Accordion elements (Edge-style New Workspace dropdown)
-    this.btnNewAccordion = document.getElementById('btn-new-workspace-accordion');
-    this.newDropdown = document.getElementById('new-workspace-dropdown');
-    this.btnCreateWithTabs = document.getElementById('btn-create-with-tabs');
-    this.btnCreateBlank = document.getElementById('btn-create-blank');
-    this.lblCreateWithTabs = document.getElementById('lbl-create-with-tabs');
-
-    // Initialize Color Picker for New Workspace modal
-    this.colorPicker = renderColorPicker({ selectedColor: 'blue' });
-    this.newWsColorContainer.appendChild(this.colorPicker.element);
-
-    // Initialize Color Picker for Edit Workspace modal
-    if (this.editWsColorContainer) {
-      this.colorPickerEdit = renderColorPicker({ selectedColor: 'blue' });
-      this.editWsColorContainer.appendChild(this.colorPickerEdit.element);
-    }
+    this.scheduleLoad = debounce(() => this.load(), 80);
   }
 
   async init() {
-    // Determine current window ID (prefer getLastFocused for normal browser window in popups)
     try {
-      if (chrome.windows?.getLastFocused) {
-        const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-        this.currentWindowId = win ? win.id : (await chrome.windows?.getCurrent?.())?.id;
-      }
-    } catch (err) {
-      console.warn('Could not determine current window:', err);
+      const win = await chrome.windows.getCurrent();
+      this.windowId = win?.id ?? null;
+    } catch {
+      const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => null);
+      this.windowId = win?.id ?? null;
     }
 
-    // Initialize Live Open Tabs View (drag-to-group surface)
-    if (this.windowTabsList) {
-      this.liveTabsView = new LiveTabsView(this.windowTabsList, {
-        currentWindowId: this.currentWindowId,
-        onTabCountChange: (count) => {
-          if (this.navOpenTabsCount) {
-            this.navOpenTabsCount.textContent = `Open Tabs (${count})`;
-          }
-        }
-      });
-    }
-
-    // Attach DOM events
-    this.bindEvents();
-
-    // Listen for background updates
-    if (chrome.runtime?.onMessage) {
-      chrome.runtime.onMessage.addListener((message) => {
-        if (
-          message?.type === MESSAGE_TYPES.WORKSPACE_UPDATED ||
-          message?.type === MESSAGE_TYPES.STATE_CHANGED
-        ) {
-          this.loadAndRender();
-          if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-            this.liveTabsView.loadAndRender();
-          }
-        } else if (message?.type === 'TRIGGER_NEW_WORKSPACE_MODAL') {
-          this.openNewWorkspaceModal();
-        }
-      });
-    }
-
-    // Step 5: Keep sidebar in sync with the real tabstrip & auto-prompt for newly created groups
-    if (chrome.tabGroups?.onCreated) {
-      chrome.tabGroups.onCreated.addListener((group) => {
-        if (group.windowId && this.currentWindowId && group.windowId !== this.currentWindowId) {
-          return;
-        }
-        if (!group.title) {
-          showNamePrompt(group.id);
-        }
-        if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-          this.liveTabsView.loadAndRender();
-        }
-      });
-      chrome.tabGroups.onUpdated?.addListener(() => {
-        if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-          this.liveTabsView.loadAndRender();
-        }
-      });
-      chrome.tabGroups.onRemoved?.addListener(() => {
-        if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-          this.liveTabsView.loadAndRender();
-        }
-      });
-    }
-
-    if (chrome.tabs?.onUpdated) {
-      chrome.tabs.onUpdated.addListener(() => {
-        if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-          this.liveTabsView.loadAndRender();
-        }
-      });
-      chrome.tabs.onMoved?.addListener(() => {
-        if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-          this.liveTabsView.loadAndRender();
-        }
-      });
-      chrome.tabs.onRemoved?.addListener(() => {
-        if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-          this.liveTabsView.loadAndRender();
-        }
-      });
-      chrome.tabs.onCreated?.addListener(() => {
-        if (this.currentMode === 'open-tabs' && this.liveTabsView) {
-          this.liveTabsView.loadAndRender();
-        }
-      });
-    }
-
-    // Initial load
-    await this.loadAndRender();
-    if (this.liveTabsView) {
-      await this.liveTabsView.loadAndRender();
-    }
-  }
-
-  bindEvents() {
-    // Search input
-    this.searchInput.addEventListener('input', (e) => {
-      this.searchQuery = (e.target.value || '').trim().toLowerCase();
-      this.renderList();
+    this.renderShell();
+    this.bindShell();
+    onMenuClosed(() => {
+      if (this.pendingRender) setTimeout(() => this.renderList(), 0);
     });
 
-    // Header buttons
-    const btnDock = document.getElementById('btn-dock-sidepanel');
-    if (btnDock) {
-      btnDock.addEventListener('click', async () => {
+    this.liveView = new LiveTabsView(this.el.windowTabs, {
+      windowId: this.windowId,
+      onTabCountChange: (count) => {
+        this.windowTabCount = count;
+        this.el.countWindow.textContent = String(count);
+        if (this.loaded) this.renderWindowBar();
+      }
+    });
+    await this.liveView.loadAndRender();
+
+    chrome.storage.onChanged.addListener((changes, area) => {
+      const relevant = area === 'local'
+        ? [STORAGE_KEYS.WORKSPACES, STORAGE_KEYS.WORKSPACE_ORDER, STORAGE_KEYS.SETTINGS].some((k) => k in changes)
+        : [STORAGE_KEYS.WINDOW_BINDINGS, STORAGE_KEYS.ACTIVE_WORKSPACE_ID].some((k) => k in changes);
+      if (relevant) this.scheduleLoad();
+    });
+
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type === MESSAGE_TYPES.TRIGGER_NEW_WORKSPACE_MODAL) this.createWorkspaceFlow();
+      else if (message?.type === MESSAGE_TYPES.STATE_CHANGED) this.scheduleLoad();
+    });
+
+    await this.load();
+    this.root.removeAttribute('aria-busy');
+    if (MODE !== 'panel') this.el.search.focus();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Shell
+  // ---------------------------------------------------------------------------
+
+  renderShell() {
+    this.root.innerHTML = `
+      <header class="topbar">
+        <div class="brand">${ICONS.logo}<span>Workspaces</span></div>
+        <div class="topbar-actions">
+          <button type="button" class="icon-btn" data-act="new" title="New workspace (N)" aria-label="New workspace" aria-haspopup="menu">${ICONS.plus}</button>
+          ${IS_TRANSIENT ? `<button type="button" class="icon-btn" data-act="dock" title="Open in side panel" aria-label="Open in side panel">${ICONS.panel}</button>` : ''}
+          <button type="button" class="icon-btn" data-act="settings" title="Settings" aria-label="Settings">${ICONS.settings}</button>
+        </div>
+      </header>
+
+      <section class="window-bar" data-el="windowBar" aria-live="polite"></section>
+
+      <nav class="segmented" role="tablist" aria-label="View">
+        <button type="button" role="tab" id="tab-workspaces" aria-controls="view-workspaces" aria-selected="true" data-view="workspaces">
+          Workspaces <span class="count" data-el="countWorkspaces">0</span>
+        </button>
+        <button type="button" role="tab" id="tab-window" aria-controls="view-window" aria-selected="false" data-view="window">
+          This window <span class="count" data-el="countWindow">0</span>
+        </button>
+      </nav>
+
+      <div class="view" id="view-workspaces" role="tabpanel" aria-labelledby="tab-workspaces" data-el="viewWorkspaces">
+        <div class="search">
+          ${ICONS.search}
+          <input type="search" data-el="search" placeholder="Search workspaces and tabs" aria-label="Search workspaces and tabs" autocomplete="off" spellcheck="false">
+          <kbd class="search-kbd" aria-hidden="true">/</kbd>
+        </div>
+        <div class="list-toolbar">
+          <span class="muted" data-el="summary"></span>
+          <button type="button" class="text-btn" data-act="sort" data-el="sortBtn">${ICONS.sort}<span></span></button>
+        </div>
+        <div class="scroll">
+          <div class="ws-list" role="list" data-el="list"></div>
+        </div>
+      </div>
+
+      <div class="view hidden" id="view-window" role="tabpanel" aria-labelledby="tab-window" data-el="viewWindow">
+        <div class="list-toolbar">
+          <span class="muted">Drag a tab onto another to group them</span>
+          <button type="button" class="text-btn" data-act="organize" title="Group tabs by site category">${ICONS.sparkle}<span>Auto-group</span></button>
+        </div>
+        <div class="scroll"><div data-el="windowTabs"></div></div>
+      </div>
+
+      <footer class="footer" data-el="footer"></footer>
+    `;
+
+    this.el = {};
+    this.root.querySelectorAll('[data-el]').forEach((node) => {
+      this.el[node.dataset.el] = node;
+    });
+  }
+
+  bindShell() {
+    this.root.addEventListener('click', (e) => {
+      const actEl = e.target.closest('[data-act]');
+      if (!actEl || actEl.closest('.ws-card, .tab-tree, .window-bar, .footer')) return;
+      const act = actEl.dataset.act;
+      if (act === 'new') this.newWorkspaceMenu(actEl);
+      else if (act === 'dock') this.dockToSidePanel();
+      else if (act === 'settings') chrome.runtime.openOptionsPage();
+      else if (act === 'sort') this.toggleSort();
+      else if (act === 'organize') this.organizeCurrentWindow();
+    });
+
+    this.root.querySelectorAll('[data-view]').forEach((btn) => {
+      btn.addEventListener('click', () => this.switchView(btn.dataset.view));
+    });
+
+    this.el.search.addEventListener('input', () => {
+      this.query = this.el.search.value.trim().toLowerCase();
+      this.renderList();
+    });
+    this.el.search.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.focusRow(0);
+      } else if (e.key === 'Enter') {
+        const first = this.visibleIds()[0];
+        if (first) this.openWorkspace(first);
+      } else if (e.key === 'Escape' && this.el.search.value) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.el.search.value = '';
+        this.query = '';
+        this.renderList();
+      }
+    });
+
+    this.el.windowBar.addEventListener('click', (e) => {
+      const act = e.target.closest('[data-act]')?.dataset.act;
+      if (act === 'save') this.createWorkspaceFlow({ fromWindow: true });
+      else if (act === 'edit' && this.currentWorkspaceId) this.editWorkspace(this.workspaces[this.currentWorkspaceId]);
+    });
+
+    this.el.footer.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-act="last"]')) {
         try {
-          if (chrome.sidePanel?.open) {
-            const win = await chrome.windows?.getLastFocused?.({ windowTypes: ['normal'] });
-            if (win) {
-              await chrome.sidePanel.open({ windowId: win.id });
-            }
-          }
+          await send(MESSAGE_TYPES.SWITCH_TO_LAST);
+          this.closeIfTransient();
         } catch (err) {
-          console.warn('Could not open side panel:', err);
-        }
-
-        try {
-          if (window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'CLOSE_WORKSPACES_FLYOUT' }, '*');
-          } else {
-            window.close();
-          }
-        } catch {}
-      });
-    }
-
-    if (this.btnNewWorkspace) {
-      this.btnNewWorkspace.addEventListener('click', () => {
-        this.openNewWorkspaceModal();
-      });
-    }
-
-    // Accordion: Toggle New Workspace dropdown
-    if (this.btnNewAccordion && this.newDropdown) {
-      this.btnNewAccordion.addEventListener('click', () => {
-        const isHidden = this.newDropdown.classList.contains('hidden');
-        this.newDropdown.classList.toggle('hidden');
-        this.btnNewAccordion.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
-      });
-    }
-
-    if (this.btnCreateWithTabs) {
-      this.btnCreateWithTabs.addEventListener('click', () => {
-        if (this.newDropdown) this.newDropdown.classList.add('hidden');
-        if (this.btnNewAccordion) this.btnNewAccordion.setAttribute('aria-expanded', 'false');
-        this.openNewWorkspaceModal(true);
-      });
-    }
-
-    if (this.btnCreateBlank) {
-      this.btnCreateBlank.addEventListener('click', () => {
-        if (this.newDropdown) this.newDropdown.classList.add('hidden');
-        if (this.btnNewAccordion) this.btnNewAccordion.setAttribute('aria-expanded', 'false');
-        this.openNewWorkspaceModal(false);
-      });
-    }
-
-    if (this.btnOpenOptions) {
-      this.btnOpenOptions.addEventListener('click', () => {
-        chrome.runtime.openOptionsPage();
-      });
-    }
-
-    // View Navigation Switcher (Workspaces vs Open Tabs)
-    if (this.navBtnWorkspaces && this.navBtnOpenTabs) {
-      this.navBtnWorkspaces.addEventListener('click', () => {
-        this.switchMode('workspaces');
-      });
-      this.navBtnOpenTabs.addEventListener('click', () => {
-        this.switchMode('open-tabs');
-      });
-    }
-
-    // Footer action (if present)
-    if (this.btnSaveCurrentWindow) {
-      this.btnSaveCurrentWindow.addEventListener('click', () => {
-        this.openNewWorkspaceModal(true);
-      });
-    }
-
-    // Modal Close Buttons (data-modal attribute)
-    document.querySelectorAll('[data-modal]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const modalId = btn.getAttribute('data-modal');
-        const modal = document.getElementById(modalId);
-        if (modal) modal.classList.add('hidden');
-      });
-    });
-
-    // Close modals or in-page flyout on Escape key
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        const openModals = Array.from(document.querySelectorAll('.modal-overlay')).filter(
-          (m) => !m.classList.contains('hidden')
-        );
-        if (openModals.length > 0) {
-          openModals.forEach((m) => m.classList.add('hidden'));
-        } else {
-          try {
-            if (window.parent && window.parent !== window) {
-              window.parent.postMessage({ type: 'CLOSE_WORKSPACES_FLYOUT' }, '*');
-            }
-          } catch {}
+          toastError(err, 'Could not switch');
         }
       }
     });
 
-    // Submit New Workspace
-    this.formNew.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const name = this.newWsNameInput.value.trim();
-      const color = this.colorPicker.getSelected();
-      const fromCurrent = this.newWsFromCurrent.checked;
-
-      this.modalNew.classList.add('hidden');
-
-      try {
-        if (fromCurrent && this.currentWindowId) {
-          await sendBackgroundMessage(MESSAGE_TYPES.CREATE_FROM_CURRENT_WINDOW, {
-            windowId: this.currentWindowId,
-            name,
-            color
-          });
-        } else {
-          const newWs = await sendBackgroundMessage(MESSAGE_TYPES.CREATE_WORKSPACE, {
-            name,
-            color
-          });
-          // Open the new workspace window right away
-          if (newWs && newWs.id) {
-            await sendBackgroundMessage(MESSAGE_TYPES.OPEN_WORKSPACE, { id: newWs.id });
-          }
-        }
-        await this.loadAndRender();
-      } catch (err) {
-        alert(`Error creating workspace: ${err.message}`);
-      }
-    });
-
-    // Submit Edit Workspace (Rename + Color)
-    this.formRename.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const id = this.renameWsId.value;
-      const name = this.renameWsName.value.trim();
-      const color = this.colorPickerEdit ? this.colorPickerEdit.getSelected() : null;
-      this.modalRename.classList.add('hidden');
-
-      try {
-        await sendBackgroundMessage(MESSAGE_TYPES.RENAME_WORKSPACE, { id, name });
-        if (color) {
-          await sendBackgroundMessage(MESSAGE_TYPES.RECOLOR_WORKSPACE, { id, color });
-        }
-        await this.loadAndRender();
-      } catch (err) {
-        alert(`Error saving workspace: ${err.message}`);
-      }
-    });
-
-    // Confirm Delete Workspace
-    this.btnConfirmDelete.addEventListener('click', async () => {
-      if (!this.pendingDeleteWorkspace) return;
-      const ws = this.pendingDeleteWorkspace;
-      this.modalDelete.classList.add('hidden');
-
-      if (this.deleteDontAskAgain.checked) {
-        await sendBackgroundMessage(MESSAGE_TYPES.UPDATE_SETTINGS, {
-          settings: { confirmDelete: false }
-        });
-      }
-
-      try {
-        await sendBackgroundMessage(MESSAGE_TYPES.DELETE_WORKSPACE, { id: ws.id });
-        this.pendingDeleteWorkspace = null;
-        await this.loadAndRender();
-      } catch (err) {
-        alert(`Error deleting workspace: ${err.message}`);
-      }
-    });
+    document.addEventListener('keydown', (e) => this.onGlobalKey(e));
   }
 
+  onGlobalKey(e) {
+    const typing = e.target.matches?.('input, textarea, [contenteditable="true"]');
+    if (document.querySelector('dialog[open]')) return;
 
-  async loadAndRender() {
+    if (e.key === '/' && !typing) {
+      e.preventDefault();
+      this.switchView('workspaces');
+      this.el.search.focus();
+    } else if ((e.key === 'n' || e.key === 'N') && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      this.createWorkspaceFlow();
+    } else if (e.key === 'Escape' && !typing && !isNamePromptOpen()) {
+      this.closeIfTransient();
+    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.target.classList?.contains('ws-row')) {
+      e.preventDefault();
+      const rows = [...this.el.list.querySelectorAll('.ws-row')];
+      const idx = rows.indexOf(e.target);
+      const next = e.key === 'ArrowDown' ? idx + 1 : idx - 1;
+      if (next < 0) this.el.search.focus();
+      else this.focusRow(Math.min(next, rows.length - 1));
+    }
+  }
+
+  focusRow(index) {
+    const rows = this.el.list.querySelectorAll('.ws-row');
+    rows[index]?.focus();
+  }
+
+  switchView(view) {
+    this.view = view;
+    this.root.querySelectorAll('[data-view]').forEach((btn) => {
+      btn.setAttribute('aria-selected', String(btn.dataset.view === view));
+    });
+    this.el.viewWorkspaces.classList.toggle('hidden', view !== 'workspaces');
+    this.el.viewWindow.classList.toggle('hidden', view !== 'window');
+    this.liveView.setActive(view === 'window');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Data
+  // ---------------------------------------------------------------------------
+
+  async load() {
     try {
-      const [stateData, statusData] = await Promise.all([
-        sendBackgroundMessage(MESSAGE_TYPES.LIST_WORKSPACES),
-        sendBackgroundMessage(MESSAGE_TYPES.GET_CURRENT_STATUS, { windowId: this.currentWindowId })
+      const [state, status] = await Promise.all([
+        send(MESSAGE_TYPES.LIST_WORKSPACES),
+        send(MESSAGE_TYPES.GET_CURRENT_STATUS, { windowId: this.windowId })
       ]);
-
-      if (stateData) {
-        this.workspaces = stateData.workspaces || {};
-        this.workspaceOrder = stateData.workspaceOrder || [];
-        this.settings = stateData.settings || {};
-      }
-
-      if (statusData) {
-        this.bindings = statusData.bindings || {};
-        this.currentWorkspaceId = statusData.currentWorkspaceId || null;
-        this.activeWorkspaceId = statusData.activeWorkspaceId || null;
-      }
-
-      this.updateFooterStatus();
-      this.renderList();
+      this.workspaces = state?.workspaces || {};
+      this.workspaceOrder = state?.workspaceOrder || [];
+      this.settings = state?.settings || {};
+      this.bindings = status?.bindings || {};
+      this.currentWorkspaceId = status?.currentWorkspaceId || null;
+      this.previousWorkspaceId = status?.previousWorkspaceId || null;
+      this.loaded = true;
+      this.render();
     } catch (err) {
-      console.warn('loadAndRender error:', err);
+      console.warn('load error:', err);
+      if (!this.loaded) {
+        this.el.list.innerHTML = `<div class="empty"><p class="empty-text">Could not reach the extension. Try reopening this panel.</p></div>`;
+      }
     }
   }
 
-  async updateFooterStatus() {
-    if (this.windowStatusDot && this.windowStatusText) {
-      if (this.currentWorkspaceId && this.workspaces[this.currentWorkspaceId]) {
-        const currentWs = this.workspaces[this.currentWorkspaceId];
-        this.windowStatusDot.className = 'footer-indicator managed';
-        this.windowStatusText.textContent = `${currentWs.name} (Managed)`;
-        if (this.btnSaveCurrentWindow) this.btnSaveCurrentWindow.style.display = 'none';
-      } else {
-        this.windowStatusDot.className = 'footer-indicator unmanaged';
-        this.windowStatusText.textContent = 'Unmanaged window';
-        if (this.btnSaveCurrentWindow) {
-          this.btnSaveCurrentWindow.style.display = 'block';
-          this.btnSaveCurrentWindow.textContent = 'Save as new';
-        }
-      }
-    }
+  isOpen(id) {
+    return Object.values(this.bindings).includes(id);
+  }
 
-    if (this.currentWindowId) {
-      try {
-        const tabs = await chrome.tabs.query({ windowId: this.currentWindowId });
-        const cnt = tabs && tabs.length > 0 ? tabs.length : 1;
-        this.currentTabCount = cnt;
-        if (this.lblCreateWithTabs) {
-          this.lblCreateWithTabs.textContent = `Create workspace with ${cnt} ${cnt === 1 ? 'tab' : 'tabs'}`;
-        }
-      } catch {
-        // ignore
-      }
+  visibleIds() {
+    let ids = this.workspaceOrder.filter((id) => this.workspaces[id]);
+    if (this.query) {
+      ids = ids.filter((id) => {
+        const ws = this.workspaces[id];
+        if (ws.name.toLowerCase().includes(this.query)) return true;
+        return (ws.tabs || []).some(
+          (t) => (t.title || '').toLowerCase().includes(this.query) || (t.url || '').toLowerCase().includes(this.query)
+        );
+      });
     }
+    if (this.settings.sortOrder === 'recent') {
+      ids.sort((a, b) => {
+        if (a === this.currentWorkspaceId) return -1;
+        if (b === this.currentWorkspaceId) return 1;
+        return (this.workspaces[b].lastOpenedAt || 0) - (this.workspaces[a].lastOpenedAt || 0);
+      });
+    }
+    return ids;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------------------
+
+  render() {
+    this.renderWindowBar();
+    this.renderFooter();
+    const total = Object.keys(this.workspaces).length;
+    this.el.countWorkspaces.textContent = String(total);
+    const sortLabel = this.settings.sortOrder === 'recent' ? 'Recent' : 'Custom';
+    this.el.sortBtn.querySelector('span').textContent = sortLabel;
+    this.el.sortBtn.title = `Sorted: ${sortLabel.toLowerCase()} order. Click to change.`;
+    this.renderList();
+  }
+
+  renderWindowBar() {
+    const bar = this.el.windowBar;
+    const ws = this.currentWorkspaceId ? this.workspaces[this.currentWorkspaceId] : null;
+    if (ws) {
+      bar.className = 'window-bar is-managed';
+      applyColorVars(bar, ws.color);
+      bar.innerHTML = `
+        <span class="ws-avatar">${escapeHtml(ws.icon || ws.name.charAt(0).toUpperCase())}</span>
+        <span class="wb-text">
+          <span class="wb-title">${escapeHtml(ws.name)}</span>
+          <span class="wb-sub">This window · ${escapeHtml(describeWorkspace(ws))} · saved automatically</span>
+        </span>
+        <button type="button" class="btn is-ghost is-sm" data-act="edit">${ICONS.edit}<span>Edit</span></button>
+      `;
+    } else {
+      bar.className = 'window-bar is-unmanaged';
+      bar.removeAttribute('style');
+      bar.innerHTML = `
+        <span class="wb-icon">${ICONS.window}</span>
+        <span class="wb-text">
+          <span class="wb-title">Unsaved window</span>
+          <span class="wb-sub">${pluralize(this.windowTabCount, 'tab')} not in any workspace</span>
+        </span>
+        <button type="button" class="btn is-primary is-sm" data-act="save">${ICONS.save}<span>Save</span></button>
+      `;
+    }
+  }
+
+  renderFooter() {
+    const prev = this.previousWorkspaceId && this.workspaces[this.previousWorkspaceId];
+    const showPrev = prev && this.previousWorkspaceId !== this.currentWorkspaceId;
+    this.el.footer.innerHTML = showPrev
+      ? `<button type="button" class="chip" data-act="last" title="Switch to the previous workspace">${ICONS.switchLast}<span>Back to <strong>${escapeHtml(prev.name)}</strong></span></button>`
+      : `<span class="muted">Press <kbd>/</kbd> to search · <kbd>N</kbd> for a new workspace</span>`;
   }
 
   renderList() {
-    this.listContainer.innerHTML = '';
-    const newWsSection = document.querySelector('.new-workspace-section');
-
-    // Filter workspaces based on search query
-    let displayIds = this.workspaceOrder.filter((id) => Boolean(this.workspaces[id]));
-
-    if (this.searchQuery) {
-      displayIds = displayIds.filter((id) => {
-        const ws = this.workspaces[id];
-        if (ws.name.toLowerCase().includes(this.searchQuery)) return true;
-        // Also match inside tab titles / URLs
-        return (ws.tabs || []).some(
-          (t) =>
-            (t.title && t.title.toLowerCase().includes(this.searchQuery)) ||
-            (t.url && t.url.toLowerCase().includes(this.searchQuery))
-        );
-      });
+    // Background syncs fire on every tab load; don't yank menus or prompts away mid-use
+    if (isNamePromptOpen() || isMenuOpen()) {
+      this.pendingRender = true;
+      return;
     }
+    this.pendingRender = false;
 
-    // Order workspaces: Edge 144+ defaults to Most Recently Used (MRU)
-    if (this.settings.sortByMru !== false) {
-      displayIds.sort((a, b) => {
-        if (a === this.currentWorkspaceId) return -1;
-        if (b === this.currentWorkspaceId) return 1;
-        const timeA = this.workspaces[a]?.lastOpenedAt || this.workspaces[a]?.updatedAt || 0;
-        const timeB = this.workspaces[b]?.lastOpenedAt || this.workspaces[b]?.updatedAt || 0;
-        return timeB - timeA;
-      });
-    }
+    const list = this.el.list;
+    const scroller = list.parentElement;
+    const scrollTop = scroller.scrollTop;
+    const focusKey = document.activeElement?.closest?.('[data-focus-key]')?.dataset.focusKey;
 
-    if (displayIds.length === 0) {
-      if (newWsSection) newWsSection.style.display = this.searchQuery ? 'block' : 'none';
+    const ids = this.visibleIds();
+    const total = Object.keys(this.workspaces).length;
+    const openCount = Object.keys(this.workspaces).filter((id) => this.isOpen(id)).length;
+    this.el.summary.textContent = total
+      ? this.query
+        ? `${pluralize(ids.length, 'match', 'matches')}`
+        : `${pluralize(total, 'workspace')}${openCount ? ` · ${openCount} open` : ''}`
+      : '';
 
-      const empty = document.createElement('div');
-      empty.className = 'empty-state';
-
-      if (this.searchQuery) {
-        empty.innerHTML = `
-          <div class="empty-state-icon">
-            <svg viewBox="0 0 16 16" width="22" height="22" fill="currentColor">
-              <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
-            </svg>
-          </div>
-          <div class="empty-state-title">No matching workspaces</div>
-          <p class="empty-state-desc">No workspaces or tabs matched your search.</p>
-        `;
-      } else {
-        const cnt = this.currentTabCount || 1;
-        empty.innerHTML = `
-          <div class="empty-state-icon">
-            <svg viewBox="0 0 20 20" width="26" height="26" fill="currentColor">
-              <path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v8A2.5 2.5 0 0 0 4.5 15h8a2.5 2.5 0 0 0 2.5-2.5v-8A2.5 2.5 0 0 0 12.5 2zM3 12.5V6h11v6.5c0 .83-.67 1.5-1.5 1.5h-8A1.5 1.5 0 0 1 3 12.5M3 5v-.5C3 3.67 3.67 3 4.5 3h8c.83 0 1.5.67 1.5 1.5V5zm4.5 13a2.5 2.5 0 0 1-2.45-2h1.04c.2.58.76 1 1.41 1H14a3 3 0 0 0 3-3V7.5c0-.65-.42-1.2-1-1.41V5.05a2.5 2.5 0 0 1 2 2.45V14a4 4 0 0 1-4 4z"/>
-            </svg>
-          </div>
-          <div class="empty-state-title">Get started with Workspaces</div>
-          <p class="empty-state-desc">Organize tabs for different tasks and projects in dedicated windows.</p>
-          <div class="empty-actions">
-            <button id="btn-empty-create-tabs" class="empty-action-card primary" type="button">
-              <div class="eac-icon">
-                <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor">
-                  <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/>
-                </svg>
-              </div>
-              <div class="eac-text">
-                <div class="eac-title">Create workspace with ${cnt} ${cnt === 1 ? 'tab' : 'tabs'}</div>
-                <div class="eac-subtitle">Save tabs from this window into a workspace</div>
-              </div>
-            </button>
-            <button id="btn-empty-create-blank" class="empty-action-card secondary" type="button">
-              <div class="eac-icon">
-                <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <rect x="2" y="2" width="12" height="12" rx="2"/>
-                  <path d="M8 5v6M5 8h6" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="eac-text">
-                <div class="eac-title">Create blank workspace</div>
-                <div class="eac-subtitle">Start fresh with an empty workspace</div>
-              </div>
-            </button>
-          </div>
-        `;
-
-        const btnTabs = empty.querySelector('#btn-empty-create-tabs');
-        if (btnTabs) {
-          btnTabs.onclick = () => this.openNewWorkspaceModal(true);
-        }
-        const btnBlank = empty.querySelector('#btn-empty-create-blank');
-        if (btnBlank) {
-          btnBlank.onclick = () => this.openNewWorkspaceModal(false);
-        }
-      }
-
-      this.listContainer.appendChild(empty);
-      this.notifyFlyoutHeight();
+    if (ids.length === 0) {
+      list.replaceChildren(this.query ? this.renderNoResults() : this.renderEmptyState());
       return;
     }
 
-    if (newWsSection) {
-      newWsSection.style.display = this.currentMode === 'workspaces' ? 'block' : 'none';
+    const draggable = this.settings.sortOrder !== 'recent' && !this.query;
+    const fragment = document.createDocumentFragment();
+    for (const id of ids) {
+      fragment.appendChild(this.renderCard(this.workspaces[id], draggable));
     }
+    list.replaceChildren(fragment);
+    scroller.scrollTop = scrollTop;
 
-    // Render cards
-    displayIds.forEach((id) => {
-      const ws = this.workspaces[id];
-      const isOpen = Object.values(this.bindings).includes(id);
-      const isCurrentWindow = this.currentWorkspaceId === id;
-      const isExpanded = Boolean(this.searchQuery) || this.expandedWorkspaceIds.has(id);
-
-      const card = renderWorkspaceCard({
-        workspace: ws,
-        isOpen,
-        isCurrentWindow,
-        isExpanded,
-        searchQuery: this.searchQuery,
-        onToggleExpand: (wsId) => this.toggleExpand(wsId),
-        onOpenWorkspace: (wsId) => this.handleOpenWorkspace(wsId),
-        onContextMenu: (params) => this.handleContextMenu(params),
-        onTabClick: (wsId, tab) => this.handleTabClick(wsId, tab),
-        onTabClose: (wsId, tabId) => this.handleTabClose(wsId, tabId),
-        onTabMerge: (params) => this.handleTabMerge(params),
-        onAddTabToGroup: (params) => this.handleAddTabToGroup(params),
-        onUngroup: (wsId, groupId) => this.handleUngroup(wsId, groupId),
-        onUpdateGroup: (wsId, groupId, headerEl) => this.handleUpdateGroup(wsId, groupId, headerEl),
-        onRemoveTabFromGroup: (params) => this.handleRemoveTabFromGroup(params),
-        onReorderDrop: (sourceId, targetId, position) => this.handleReorderDrop(sourceId, targetId, position),
-        onTabDrop: (tabId, targetWsId) => this.handleTabDrop(tabId, targetWsId)
-      });
-
-      this.listContainer.appendChild(card);
-    });
-
-    this.notifyFlyoutHeight();
+    if (focusKey) {
+      list.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`)?.focus({ preventScroll: true });
+    }
   }
 
-  toggleExpand(workspaceId) {
-    if (this.expandedWorkspaceIds.has(workspaceId)) {
-      this.expandedWorkspaceIds.delete(workspaceId);
-    } else {
-      this.expandedWorkspaceIds.add(workspaceId);
-    }
+  renderCard(ws, draggable) {
+    const id = ws.id;
+    return renderWorkspaceCard({
+      workspace: ws,
+      isOpen: this.isOpen(id),
+      isCurrentWindow: this.currentWorkspaceId === id,
+      isExpanded: Boolean(this.query) || this.expanded.has(id),
+      searchQuery: this.query,
+      draggable,
+      isGroupExpanded: (wsId, group) => {
+        const key = `${wsId}:${group.id}`;
+        return this.groupExpanded.has(key) ? this.groupExpanded.get(key) : !group.collapsed;
+      },
+      on: {
+        open: (wsId) => this.openWorkspace(wsId),
+        toggleExpand: (wsId) => this.toggleExpand(wsId),
+        menu: (pos) => this.workspaceMenu(ws, pos),
+        edit: () => this.editWorkspace(ws),
+        remove: () => this.deleteWorkspace(ws),
+        reorder: (sourceId, targetId, position) => this.reorder(sourceId, targetId, position),
+        tabDrop: (data) => this.moveTab(data, id),
+        tabs: this.tabHandlers(ws)
+      }
+    });
+  }
+
+  renderEmptyState() {
+    const el = document.createElement('div');
+    el.className = 'empty';
+    el.innerHTML = `
+      <div class="empty-art" aria-hidden="true">
+        <span class="empty-card c1"></span><span class="empty-card c2"></span><span class="empty-card c3"></span>
+      </div>
+      <h2 class="empty-title">Keep each project in its own window</h2>
+      <p class="empty-text">A workspace remembers its tabs and tab groups. Close it when you're done and reopen it exactly as you left it.</p>
+      <div class="empty-actions">
+        ${this.currentWorkspaceId ? '' : `<button type="button" class="btn is-primary" data-empty="window">${ICONS.save}<span>Save this window (${pluralize(this.windowTabCount, 'tab')})</span></button>`}
+        <button type="button" class="btn" data-empty="blank">${ICONS.plus}<span>Start a blank workspace</span></button>
+      </div>
+    `;
+    el.querySelector('[data-empty="window"]')?.addEventListener('click', () => this.createWorkspaceFlow({ fromWindow: true }));
+    el.querySelector('[data-empty="blank"]').addEventListener('click', () => this.createWorkspaceFlow({ fromWindow: false }));
+    return el;
+  }
+
+  renderNoResults() {
+    const el = document.createElement('div');
+    el.className = 'empty is-compact';
+    el.innerHTML = `<p class="empty-text">No workspace or tab matches “${escapeHtml(this.query)}”.</p>`;
+    return el;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Workspace actions
+  // ---------------------------------------------------------------------------
+
+  toggleExpand(id) {
+    if (this.expanded.has(id)) this.expanded.delete(id);
+    else this.expanded.add(id);
     this.renderList();
-    if (this.expandedWorkspaceIds.has(workspaceId)) {
-      requestAnimationFrame(() => {
-        const card = document.getElementById(`card-${workspaceId}`);
-        if (card) {
-          card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (this.expanded.has(id)) {
+      requestAnimationFrame(() => document.getElementById(`card-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    }
+  }
+
+  async openWorkspace(id) {
+    if (id === this.currentWorkspaceId) {
+      this.toggleExpand(id);
+      return;
+    }
+    try {
+      await send(MESSAGE_TYPES.OPEN_WORKSPACE, { id });
+      this.closeIfTransient();
+    } catch (err) {
+      toastError(err, 'Could not open workspace');
+    }
+  }
+
+  async createWorkspaceFlow({ fromWindow = null } = {}) {
+    const canIncludeTabs = !this.currentWorkspaceId;
+    const usedNames = new Set(Object.values(this.workspaces).map((w) => w.name.toLowerCase()));
+    let n = Object.keys(this.workspaces).length + 1;
+    while (usedNames.has(`workspace ${n}`)) n++;
+
+    const result = await openWorkspaceDialog({
+      mode: 'create',
+      name: `Workspace ${n}`,
+      color: nextUnusedColor(Object.values(this.workspaces).map((w) => w.color), n),
+      includeTabs: canIncludeTabs && (fromWindow ?? true),
+      tabCount: this.windowTabCount,
+      canIncludeTabs
+    });
+    if (!result) return;
+
+    try {
+      if (result.includeTabs && canIncludeTabs) {
+        const ws = await send(MESSAGE_TYPES.CREATE_FROM_CURRENT_WINDOW, {
+          windowId: this.windowId, name: result.name, color: result.color, icon: result.icon
+        });
+        toast(`Saved this window as “${ws.name}”`, { type: 'success' });
+        await this.load();
+      } else {
+        const ws = await send(MESSAGE_TYPES.CREATE_WORKSPACE, { name: result.name, color: result.color, icon: result.icon });
+        await send(MESSAGE_TYPES.OPEN_WORKSPACE, { id: ws.id });
+        this.closeIfTransient();
+      }
+    } catch (err) {
+      toastError(err, 'Could not create workspace');
+    }
+  }
+
+  newWorkspaceMenu(button) {
+    const canSave = !this.currentWorkspaceId;
+    showMenuForButton(button, [
+      canSave ? { label: `Save this window (${pluralize(this.windowTabCount, 'tab')})`, icon: 'save', onSelect: () => this.createWorkspaceFlow({ fromWindow: true }) } : null,
+      { label: 'Blank workspace', icon: 'plus', shortcut: 'N', onSelect: () => this.createWorkspaceFlow({ fromWindow: false }) }
+    ], 'New workspace');
+  }
+
+  async editWorkspace(ws) {
+    if (!ws) return;
+    const result = await openWorkspaceDialog({ mode: 'edit', name: ws.name, color: ws.color, icon: ws.icon });
+    if (!result) return;
+    try {
+      await send(MESSAGE_TYPES.UPDATE_WORKSPACE, { id: ws.id, name: result.name, color: result.color, icon: result.icon });
+    } catch (err) {
+      toastError(err, 'Could not save changes');
+    }
+  }
+
+  async deleteWorkspace(ws) {
+    if (this.settings.confirmDelete) {
+      const open = this.isOpen(ws.id);
+      const { confirmed, checked } = await confirmDialog({
+        title: `Delete “${ws.name}”?`,
+        message: `${describeWorkspace(ws)} will be removed.${open ? ' Its window stays open but is no longer saved.' : ''} You can undo right after.`,
+        confirmLabel: 'Delete',
+        danger: true,
+        checkboxLabel: "Don't ask again"
+      });
+      if (!confirmed) return;
+      if (checked) send(MESSAGE_TYPES.UPDATE_SETTINGS, { settings: { confirmDelete: false } }).catch(() => {});
+    }
+
+    try {
+      const res = await send(MESSAGE_TYPES.DELETE_WORKSPACE, { id: ws.id });
+      if (!res?.deleted) return;
+      toast(`Deleted “${ws.name}”`, {
+        duration: 7000,
+        action: {
+          label: 'Undo',
+          icon: 'undo',
+          onClick: async () => {
+            try {
+              await send(MESSAGE_TYPES.RESTORE_WORKSPACE, { workspace: res.workspace, index: res.index });
+            } catch (err) {
+              toastError(err, 'Could not restore');
+            }
+          }
         }
       });
-    }
-  }
-
-  async handleOpenWorkspace(workspaceId) {
-    try {
-      const isSwitchingToDifferentWindow = workspaceId !== this.currentWorkspaceId;
-      await sendBackgroundMessage(MESSAGE_TYPES.OPEN_WORKSPACE, { id: workspaceId });
-      await this.loadAndRender();
-      if (isSwitchingToDifferentWindow) {
-        try {
-          if (window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'CLOSE_WORKSPACES_FLYOUT' }, '*');
-          }
-          if (document.documentElement.classList.contains('is-popup')) {
-            window.close();
-          }
-        } catch {}
-      }
     } catch (err) {
-      alert(`Could not open workspace: ${err.message}`);
+      toastError(err, 'Could not delete workspace');
     }
   }
 
-  handleContextMenu(params) {
-    showContextMenu({
-      ...params,
-      onOpen: (id) => this.handleOpenWorkspace(id),
-      onCloseWindow: async (id) => {
-        await sendBackgroundMessage(MESSAGE_TYPES.CLOSE_WORKSPACE, { id });
-        await this.loadAndRender();
-      },
-      onRename: (ws) => this.openRenameModal(ws),
-      onChangeColor: async (id, newColor) => {
-        await sendBackgroundMessage(MESSAGE_TYPES.RECOLOR_WORKSPACE, { id, color: newColor });
-        await this.loadAndRender();
-      },
-      onDuplicate: async (id) => {
-        await sendBackgroundMessage(MESSAGE_TYPES.DUPLICATE_WORKSPACE, { id });
-        await this.loadAndRender();
-      },
-      onDelete: (ws) => this.promptDeleteWorkspace(ws)
+  workspaceMenu(ws, { x, y, anchor }) {
+    const open = this.isOpen(ws.id);
+    const current = this.currentWorkspaceId === ws.id;
+    const run = (type, payload, msg) => async () => {
+      try {
+        await send(type, payload);
+        if (msg) toast(msg, { type: 'success' });
+      } catch (err) {
+        toastError(err);
+      }
+    };
+
+    showMenu({
+      x,
+      y,
+      anchor,
+      label: `${ws.name} options`,
+      items: [
+        current ? null : { label: open ? 'Switch to window' : 'Open in new window', icon: 'open', shortcut: '↵', onSelect: () => this.openWorkspace(ws.id) },
+        open ? { label: 'Close window', icon: 'windowClose', onSelect: run(MESSAGE_TYPES.CLOSE_WORKSPACE, { id: ws.id }) } : null,
+        { label: 'Edit name, color, icon', icon: 'edit', shortcut: 'F2', onSelect: () => this.editWorkspace(ws) },
+        { label: 'Duplicate', icon: 'duplicate', onSelect: run(MESSAGE_TYPES.DUPLICATE_WORKSPACE, { id: ws.id }, `Duplicated “${ws.name}”`) },
+        { label: 'Auto-group tabs', icon: 'sparkle', onSelect: async () => {
+          try {
+            const res = await send(MESSAGE_TYPES.ORGANIZE_TABS, { workspaceId: ws.id });
+            toast(res?.groupsCreated ? `Created ${pluralize(res.groupsCreated, 'group')}` : 'Nothing to group', { type: res?.groupsCreated ? 'success' : 'info' });
+          } catch (err) {
+            toastError(err);
+          }
+        } },
+        { header: 'Color' },
+        { colors: { selected: ws.color, onSelect: (color) => run(MESSAGE_TYPES.RECOLOR_WORKSPACE, { id: ws.id, color })() } },
+        { separator: true },
+        { label: 'Delete workspace', icon: 'trash', danger: true, shortcut: 'Del', onSelect: () => this.deleteWorkspace(ws) }
+      ]
     });
   }
 
-  async handleTabClick(workspaceId, tab) {
-    try {
-      await sendBackgroundMessage(MESSAGE_TYPES.OPEN_TAB_IN_WORKSPACE, {
-        workspaceId,
-        tabId: tab.id,
-        url: tab.url
-      });
-      if (document.documentElement.classList.contains('is-popup')) {
-        window.close();
-      } else {
-        await this.loadAndRender();
-      }
-    } catch (err) {
-      console.warn('handleTabClick error:', err);
-    }
-  }
-
-  async handleTabClose(workspaceId, tabId) {
-    try {
-      await sendBackgroundMessage(MESSAGE_TYPES.CLOSE_TAB_IN_WORKSPACE, {
-        workspaceId,
-        tabId
-      });
-      await this.loadAndRender();
-    } catch (err) {
-      console.warn('handleTabClose error:', err);
-    }
-  }
-
-  async handleReorderDrop(sourceId, targetId, position) {
-    const order = [...this.workspaceOrder];
-    const sourceIdx = order.indexOf(sourceId);
-    if (sourceIdx === -1) return;
-
-    order.splice(sourceIdx, 1);
-    let targetIdx = order.indexOf(targetId);
-    if (position === 'after') {
-      targetIdx += 1;
-    }
-    order.splice(targetIdx, 0, sourceId);
-
+  async reorder(sourceId, targetId, position) {
+    const order = this.workspaceOrder.filter((id) => id !== sourceId);
+    let idx = order.indexOf(targetId);
+    if (position === 'after') idx += 1;
+    order.splice(idx, 0, sourceId);
     this.workspaceOrder = order;
     this.renderList();
-
     try {
-      await sendBackgroundMessage(MESSAGE_TYPES.REORDER_WORKSPACES, { order });
+      await send(MESSAGE_TYPES.REORDER_WORKSPACES, { order });
     } catch (err) {
-      console.warn('handleReorderDrop error:', err);
-      await this.loadAndRender();
+      toastError(err, 'Could not reorder');
+      this.load();
     }
   }
 
-  async handleTabDrop(tabId, targetWorkspaceId) {
+  async toggleSort() {
+    const next = this.settings.sortOrder === 'recent' ? 'manual' : 'recent';
+    this.settings.sortOrder = next;
+    this.render();
     try {
-      await sendBackgroundMessage(MESSAGE_TYPES.MOVE_TAB_TO_WORKSPACE, {
-        tabId,
-        targetWorkspaceId
-      });
-      await this.loadAndRender();
+      await send(MESSAGE_TYPES.UPDATE_SETTINGS, { settings: { sortOrder: next } });
     } catch (err) {
-      alert(`Could not move tab: ${err.message}`);
+      toastError(err);
     }
   }
 
-  switchMode(mode) {
-    this.currentMode = mode;
-    const newWsSection = document.querySelector('.new-workspace-section');
-
-    if (mode === 'workspaces') {
-      if (this.navBtnWorkspaces) {
-        this.navBtnWorkspaces.classList.add('active');
-        this.navBtnWorkspaces.setAttribute('aria-selected', 'true');
-      }
-      if (this.navBtnOpenTabs) {
-        this.navBtnOpenTabs.classList.remove('active');
-        this.navBtnOpenTabs.setAttribute('aria-selected', 'false');
-      }
-
-      this.listContainer.classList.remove('hidden');
-      if (this.searchSection) this.searchSection.classList.remove('hidden');
-      if (this.windowTabsSection) this.windowTabsSection.classList.add('hidden');
-      if (newWsSection) {
-        const hasWorkspaces = Object.keys(this.workspaces).length > 0;
-        newWsSection.style.display = hasWorkspaces ? 'block' : 'none';
-      }
-      this.renderList();
-    } else {
-      if (this.navBtnOpenTabs) {
-        this.navBtnOpenTabs.classList.add('active');
-        this.navBtnOpenTabs.setAttribute('aria-selected', 'true');
-      }
-      if (this.navBtnWorkspaces) {
-        this.navBtnWorkspaces.classList.remove('active');
-        this.navBtnWorkspaces.setAttribute('aria-selected', 'false');
-      }
-
-      this.listContainer.classList.add('hidden');
-      if (this.searchSection) this.searchSection.classList.add('hidden');
-      if (this.windowTabsSection) this.windowTabsSection.classList.remove('hidden');
-      if (newWsSection) {
-        newWsSection.style.display = 'none';
-      }
-      if (this.liveTabsView) {
-        this.liveTabsView.loadAndRender();
-      }
-    }
-    this.notifyFlyoutHeight();
-  }
-
-  async handleTabMerge(mergeParams) {
+  async organizeCurrentWindow() {
     try {
-      const res = await sendBackgroundMessage(MESSAGE_TYPES.MERGE_TABS_INTO_GROUP, mergeParams);
-      await this.loadAndRender();
-      if (res?.groupId && res?.isNew) {
-        // Find newly rendered group header in target workspace card to anchor name prompt
-        const targetWsCard = document.getElementById(`card-${mergeParams.targetWorkspaceId}`);
-        const groupHeader = targetWsCard?.querySelector(`.workspace-group-section[data-group-id="${res.groupId}"] .workspace-group-header`);
-
-        showNamePrompt(res.groupId, groupHeader || null, async ({ groupId, title, color }) => {
-          const targetWsId = mergeParams.targetWorkspaceId;
-          if (targetWsId) {
-            await sendBackgroundMessage(MESSAGE_TYPES.UPDATE_TAB_GROUP, {
-              workspaceId: targetWsId,
-              groupId: groupId || res.groupId,
-              title,
-              color
-            }).catch(() => {});
-            await this.loadAndRender();
-          }
-        });
-      }
+      const res = await send(MESSAGE_TYPES.ORGANIZE_TABS, { windowId: this.windowId });
+      toast(res?.groupsCreated ? `Created ${pluralize(res.groupsCreated, 'group')}` : 'No tabs to group (needs 2+ tabs from similar sites)', { type: res?.groupsCreated ? 'success' : 'info' });
     } catch (err) {
-      console.warn('handleTabMerge error:', err);
+      toastError(err, 'Could not group tabs');
     }
   }
 
-  async handleAddTabToGroup({ workspaceId, tabId, groupId }) {
-    try {
-      await sendBackgroundMessage(MESSAGE_TYPES.ADD_TAB_TO_GROUP, {
-        workspaceId,
-        tabId,
-        groupId
-      });
-      await this.loadAndRender();
-    } catch (err) {
-      console.warn('handleAddTabToGroup error:', err);
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Tab actions inside workspace cards
+  // ---------------------------------------------------------------------------
 
-  async handleUngroup(workspaceId, groupId) {
-    try {
-      await sendBackgroundMessage(MESSAGE_TYPES.UNGROUP_TABS, {
-        workspaceId,
-        groupId
-      });
-      await this.loadAndRender();
-    } catch (err) {
-      console.warn('handleUngroup error:', err);
-    }
-  }
-
-  async handleRemoveTabFromGroup({ workspaceId, tabId }) {
-    try {
-      await sendBackgroundMessage(MESSAGE_TYPES.REMOVE_TAB_FROM_GROUP, {
-        workspaceId,
-        tabId
-      });
-      await this.loadAndRender();
-    } catch (err) {
-      console.warn('handleRemoveTabFromGroup error:', err);
-    }
-  }
-
-  handleUpdateGroup(workspaceId, groupId, anchorEl) {
-    showNamePrompt(groupId, anchorEl, async ({ groupId: updatedGid, title, color }) => {
+  tabHandlers(ws) {
+    const wsId = ws.id;
+    const call = async (type, payload) => {
       try {
-        await sendBackgroundMessage(MESSAGE_TYPES.UPDATE_TAB_GROUP, {
-          workspaceId,
-          groupId: updatedGid || groupId,
-          title,
-          color
-        });
-        await this.loadAndRender();
+        return await send(type, payload);
       } catch (err) {
-        console.warn('handleUpdateGroup error:', err);
+        toastError(err);
+        return null;
+      }
+    };
+
+    return {
+      activate: async (tab) => {
+        const res = await call(MESSAGE_TYPES.OPEN_TAB_IN_WORKSPACE, { workspaceId: wsId, tabId: tab.id, url: tab.url });
+        if (res) this.closeIfTransient();
+      },
+      close: (tab) => call(MESSAGE_TYPES.CLOSE_TAB_IN_WORKSPACE, { workspaceId: wsId, tabId: tab.id }),
+      ungroupTab: (tab) => call(MESSAGE_TYPES.REMOVE_TAB_FROM_GROUP, { workspaceId: wsId, tabId: tab.id }),
+      toggleGroup: (group, expanded) => this.groupExpanded.set(`${wsId}:${group.id}`, expanded),
+      editGroup: (group, anchor) => this.promptGroup(wsId, group, anchor),
+      ungroupAll: (group) => call(MESSAGE_TYPES.UNGROUP_TABS, { workspaceId: wsId, groupId: group.id }),
+      dropOnGroup: (data, group) => call(MESSAGE_TYPES.ADD_TAB_TO_GROUP, {
+        workspaceId: wsId, tabId: data.tabId, groupId: group.id, sourceWorkspaceId: data.sourceWorkspaceId
+      }),
+      dropUngroup: (data) => {
+        if (data.sourceWorkspaceId === wsId) return call(MESSAGE_TYPES.REMOVE_TAB_FROM_GROUP, { workspaceId: wsId, tabId: data.tabId });
+        return this.moveTab(data, wsId);
+      },
+      dropOnTab: async (data, target, targetGroup) => {
+        if (data.live) return;
+        if (targetGroup) {
+          return call(MESSAGE_TYPES.ADD_TAB_TO_GROUP, {
+            workspaceId: wsId, tabId: data.tabId, groupId: targetGroup.id, sourceWorkspaceId: data.sourceWorkspaceId
+          });
+        }
+        if (data.sourceWorkspaceId === wsId && data.groupId) {
+          return call(MESSAGE_TYPES.REMOVE_TAB_FROM_GROUP, { workspaceId: wsId, tabId: data.tabId });
+        }
+        const res = await call(MESSAGE_TYPES.MERGE_TABS_INTO_GROUP, {
+          sourceWorkspaceId: data.sourceWorkspaceId, sourceTabId: data.tabId, targetWorkspaceId: wsId, targetTabId: target.id
+        });
+        if (res?.success && res.isNew) {
+          this.expanded.add(wsId);
+          this.groupExpanded.set(`${wsId}:${res.groupId}`, true);
+          await this.load();
+          const head = document.querySelector(`#card-${CSS.escape(wsId)} .group[data-group-id="${CSS.escape(String(res.groupId))}"] .group-head`);
+          const group = this.workspaces[wsId]?.groups.find((g) => g.id === res.groupId) || { id: res.groupId, title: '', color: 'blue' };
+          this.promptGroup(wsId, group, head);
+        }
+      },
+      tabMenu: (tab, group, x, y) => this.tabMenu(ws, tab, group, x, y)
+    };
+  }
+
+  promptGroup(wsId, group, anchor) {
+    showNamePrompt({
+      anchor,
+      title: group.title,
+      color: group.color,
+      onCommit: async ({ title, color }) => {
+        try {
+          await send(MESSAGE_TYPES.UPDATE_TAB_GROUP, { workspaceId: wsId, groupId: group.id, title, color });
+        } catch (err) {
+          toastError(err, 'Could not rename group');
+        }
+        if (this.pendingRender) this.renderList();
       }
     });
   }
 
-  openNewWorkspaceModal(fromCurrentWindow = false) {
-    let defaultName = 'Workspace 1';
-    let counter = 1;
-    const existingNames = new Set(
-      Object.values(this.workspaces).map((w) => (w.name || '').toLowerCase().trim())
-    );
-    while (existingNames.has(`workspace ${counter}`)) {
-      counter++;
-    }
-    defaultName = `Workspace ${counter}`;
-
-    this.newWsNameInput.value = defaultName;
-    this.newWsFromCurrent.checked = fromCurrentWindow;
-
-    // Pick an unused color from Fluent colors
-    const ALL_COLORS = ['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple', 'gray'];
-    const usedColors = new Set(Object.values(this.workspaces).map((w) => w.color));
-    const nextColor = ALL_COLORS.find((c) => !usedColors.has(c)) || ALL_COLORS[(counter - 1) % ALL_COLORS.length];
-    this.colorPicker.setSelected(nextColor);
-
-    this.modalNew.classList.remove('hidden');
+  async moveTab(data, targetWsId) {
+    if (data.sourceWorkspaceId === targetWsId) return;
     try {
-      this.newWsNameInput.focus();
-      this.newWsNameInput.select();
-    } catch {}
-  }
-
-  notifyFlyoutHeight() {
-    // Flyout maintains a stable, dependable fixed height with smooth internal scrolling
-  }
-
-  openRenameModal(workspace) {
-    this.renameWsId.value = workspace.id;
-    this.renameWsName.value = workspace.name;
-    if (this.colorPickerEdit && workspace.color) {
-      this.colorPickerEdit.setSelected(workspace.color);
+      await send(MESSAGE_TYPES.MOVE_TAB_TO_WORKSPACE, {
+        tabId: data.tabId,
+        targetWorkspaceId: targetWsId,
+        sourceWorkspaceId: data.sourceWorkspaceId || null
+      });
+      toast(`Moved tab to “${this.workspaces[targetWsId]?.name || 'workspace'}”`, { type: 'success', duration: 2500 });
+    } catch (err) {
+      toastError(err, 'Could not move tab');
     }
-    this.modalRename.classList.remove('hidden');
-    try {
-      this.renameWsName.focus();
-      this.renameWsName.select();
-    } catch {}
   }
 
-  async promptDeleteWorkspace(workspace) {
-    if (!this.settings?.confirmDelete) {
-      // Bypassed in settings
-      await sendBackgroundMessage(MESSAGE_TYPES.DELETE_WORKSPACE, { id: workspace.id });
-      await this.loadAndRender();
+  tabMenu(ws, tab, group, x, y) {
+    const others = this.workspaceOrder.filter((id) => id !== ws.id && this.workspaces[id]);
+    showMenu({
+      x,
+      y,
+      label: 'Tab actions',
+      items: [
+        { label: 'Open tab', icon: 'open', onSelect: () => this.tabHandlers(ws).activate(tab) },
+        group ? { label: 'Remove from group', icon: 'popout', onSelect: () => this.tabHandlers(ws).ungroupTab(tab) } : null,
+        others.length ? { header: 'Move to workspace' } : null,
+        ...others.slice(0, 8).map((id) => ({
+          label: `${this.workspaces[id].icon ? this.workspaces[id].icon + ' ' : ''}${this.workspaces[id].name}`,
+          icon: 'bookmark',
+          onSelect: () => this.moveTab({ tabId: tab.id, sourceWorkspaceId: ws.id }, id)
+        })),
+        { separator: true },
+        { label: 'Close tab', icon: 'close', danger: true, onSelect: () => this.tabHandlers(ws).close(tab) }
+      ]
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mode helpers
+  // ---------------------------------------------------------------------------
+
+  async dockToSidePanel() {
+    try {
+      if (chrome.sidePanel?.open && this.windowId) await chrome.sidePanel.open({ windowId: this.windowId });
+    } catch (err) {
+      toastError(err, 'Could not open the side panel');
       return;
     }
+    this.closeIfTransient();
+  }
 
-    this.pendingDeleteWorkspace = workspace;
-    this.deletePromptText.textContent = `Are you sure you want to delete "${workspace.name}"? Its open window will stay open as unmanaged.`;
-    this.deleteDontAskAgain.checked = false;
-    this.modalDelete.classList.remove('hidden');
+  closeIfTransient() {
+    if (MODE === 'popup') {
+      window.close();
+    } else if (MODE === 'flyout') {
+      window.parent.postMessage({ type: MESSAGE_TYPES.CLOSE_FLYOUT }, '*');
+    }
   }
 }
 
-// Initialize on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
-  const app = new SidePanelApp();
-  app.init();
+  const app = new SidePanelApp(document.getElementById('app'));
+  app.init().catch((err) => console.error('Workspaces panel failed to start', err));
 });

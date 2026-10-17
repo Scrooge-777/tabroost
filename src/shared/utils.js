@@ -85,7 +85,7 @@ export function getFaviconUrl(url, pageFavIconUrl = null) {
  * Generate a letter or initial for fallback favicon tile
  */
 export function getFallbackTileLetter(title, url) {
-  if (url) {
+  if (url && /^https?:/i.test(url)) {
     try {
       const hostname = new URL(url).hostname.replace(/^www\./, '');
       if (hostname) return hostname.charAt(0).toUpperCase();

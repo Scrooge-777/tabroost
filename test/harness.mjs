@@ -261,15 +261,29 @@ globalThis.chrome = {
         throw new Error('Invalid createProperties');
       }
       let gid = groupId;
+      let targetWinId;
       if (!gid) {
+        // Like Chrome: a new group lands in createProperties.windowId, else the focused window
+        const focused = [...windows.values()].find((w) => w.focused) || first.win;
+        targetWinId = createProperties?.windowId ?? focused.id;
         gid = nextGroupId++;
-        groups.set(gid, { id: gid, windowId: createProperties?.windowId ?? first.win.id, title: '', color: 'grey', collapsed: false });
+        groups.set(gid, { id: gid, windowId: targetWinId, title: '', color: 'grey', collapsed: false });
       } else if (!groups.has(gid)) {
         throw new Error('No group with id: ' + gid);
+      } else {
+        targetWinId = groups.get(gid).windowId;
       }
       for (const id of ids) {
         const found = findTab(id);
-        if (found) found.tab.groupId = gid;
+        if (!found) continue;
+        if (found.win.id !== targetWinId) {
+          found.win.tabs.splice(found.win.tabs.indexOf(found.tab), 1);
+          reindex(found.win);
+          if (found.win.tabs.length === 0) closeWindow(found.win.id);
+          windows.get(targetWinId).tabs.push(found.tab);
+          reindex(windows.get(targetWinId));
+        }
+        found.tab.groupId = gid;
       }
       pruneGroups();
       return gid;

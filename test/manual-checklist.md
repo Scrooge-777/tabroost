@@ -1,104 +1,69 @@
-# Brave Workspaces — Manual Test Checklist
+# Workspaces — Manual Test Checklist
 
-Use this checklist to verify extension behavior in Brave Browser (Chromium 114+ / Brave 1.52+).
+Run through this list in real Brave or Chrome after significant changes. `npm test` and `npm run test:browser` already cover the core logic and the main UI flows.
 
----
+## Setup
 
-## Pre-flight: Installation
+1. Go to `brave://extensions`, turn on Developer mode, click **Load unpacked**, and choose this folder.
+2. Check that the service worker shows no errors (click **Inspect views → service worker**).
+3. Pin the toolbar icon.
 
-1. Open `brave://extensions` (or `chrome://extensions`).
-2. Turn on **Developer mode** in the top right.
-3. Click **Load unpacked** and select the extension root folder: `S:\Works\Projects\extension\GROTB`.
-4. Verify the extension loads without manifest or service worker errors.
-5. Pin the "Workspaces" extension icon to the browser toolbar.
-6. Click the toolbar icon to confirm the side panel opens on the right.
+## Core
 
----
+- [ ] **Save a window.** Open 3 tabs, click the toolbar icon, then **Save**. Name it, pick a color and an icon.
+  - Expected: the window bar shows the workspace, the toolbar badge shows its initials in its color, and the row is marked *This window*.
+- [ ] **Unmanaged windows stay untouched.** Open a new window (`Ctrl+N`) and browse in it.
+  - Expected: the panel says *Unsaved window* there, and no saved workspace changes.
+- [ ] **Close and reopen.** Close the workspace window, then click the workspace in another window's panel.
+  - Expected: a new window opens with the same tabs in order, pinned tabs, groups (names, colors, collapsed state) and window size.
+- [ ] **Focus, don't duplicate.** Click a workspace that is already open.
+  - Expected: its window comes to the front and no second window opens.
+- [ ] **Switch back.** Switch from A to B. The footer should show *Back to A*; click it.
+  - Expected: you return to A.
 
-## Core Test Scenarios
+## Tabs inside cards
 
-### 1. Workspace Creation & Window Binding
+- [ ] Expand an open workspace and click one of its tabs.
+  - Expected: that real tab activates, with no duplicate.
+- [ ] Close a tab from the card (×).
+  - Expected: the real tab closes. Closing the last tab leaves a New Tab and keeps the window open.
+- [ ] Drag a tab from workspace A's card onto workspace B's row.
+  - Expected: it moves to B. If B is open the tab moves windows; if B is closed it is stored in B.
+- [ ] Drag a tab onto another tab in a card.
+  - Expected: a group forms, the name prompt appears, and pressing Enter names the group (also on the real tab strip if the workspace is open).
+- [ ] With **another window focused**, group two tabs of an open workspace.
+  - Expected: the tabs stay in their own window.
 
-- [ ] **Create from current window**:
-  - Open a window with 3 different tabs (e.g. Wikipedia, GitHub, MDN).
-  - Open the side panel, click **Save as new** in the footer.
-  - Name it "Dev Test", select a color (e.g., Cyan).
-  - **Expected**: Workspace appears in the list; footer shows "Dev Test (Managed)" with green dot; toolbar icon shows colored badge.
-- [ ] **Close and Reopen**:
-  - Close the "Dev Test" window.
-  - In another window's side panel, click "Dev Test".
-  - **Expected**: A new window opens restoring all 3 tabs in their original order.
-- [ ] **Focus already open workspace**:
-  - Minimize or background the "Dev Test" window.
-  - Click "Dev Test" in the side panel.
-  - **Expected**: The existing window is focused without duplicating windows.
+## Workspace management
 
-### 2. Tab Synchronization & Debouncing
+- [ ] Use `⋯` → **Edit** (or `F2`) to change the name, color and icon. The badge and context menu update.
+- [ ] Delete a workspace, then click **Undo** in the notification.
+  - Expected: it is restored in the same position.
+- [ ] Switch sort to **Recent**: the current workspace comes first, then by last use. Switch back to **Custom** and drag rows to reorder.
+- [ ] Search for a tab title.
+  - Expected: matching workspaces expand to show only the matching tabs, highlighted.
+- [ ] Right-click a page → **Move tab to workspace** → pick a workspace.
 
-- [ ] **Open new tab inside workspace**:
-  - In a managed workspace window, open 2 new tabs.
-  - Check the side panel tab count.
-  - **Expected**: Count updates within 400ms.
-- [ ] **Reorder and Pin tabs**:
-  - Drag a tab to the first position and pin it (`Right click -> Pin`).
-  - Close the workspace window and reopen it.
-  - **Expected**: Pinned status and new tab order are accurately preserved.
-- [ ] **Drag tab between windows**:
-  - Open two managed workspace windows side by side.
-  - Drag a tab from Window A into Window B.
-  - **Expected**: The tab leaves Workspace A and is recorded into Workspace B.
+## Restart and service worker
 
-### 3. Native Tab Groups Synchronization
+- [ ] Open two workspaces, quit the browser completely, then relaunch with session restore on.
+  - Expected: within about 5 seconds both windows are recognised as their workspaces again, with no duplicates.
+- [ ] Leave the browser idle for more than 5 minutes (the worker shows *inactive*), then switch workspaces.
+  - Expected: it works immediately.
 
-- [ ] **Create native tab group**:
-  - Select two tabs in the workspace window, right click -> **Add tabs to new group**.
-  - Name the group "Docs", set color to "Cyan".
-  - Collapse the group.
-  - Close the window.
-  - Reopen the workspace.
-  - **Expected**: The group is restored with title "Docs", cyan color, and collapsed state.
+## Settings
 
-### 4. Browser Restart & Recovery Matching
+- [ ] Turn on **Workspace button on pages**.
+  - Expected: the browser asks for site access, then the pill appears on open pages and clicking it opens the switcher flyout.
+  - Turn it off: the pill disappears and the permission is released.
+- [ ] Turn on **Accent border**: a thin colored line appears at the top of pages in workspace windows.
+- [ ] Click **Back up now**, change something, then **Restore**.
+  - Expected: the earlier state comes back and a *Before restoring* snapshot is added.
+- [ ] Export, then import with **Add to my workspaces** (duplicates are added) and with **Replace** (asks for confirmation).
+- [ ] Click **Reset everything**.
+  - Expected: everything is cleared, and the *Before reset* backup can restore it.
 
-- [ ] **Restart Test**:
-  - Open two workspaces ("College" and "Personal") in separate windows.
-  - Quit Brave completely (`Menu -> Exit` or `Ctrl+Shift+Q`).
-  - Relaunch Brave.
-  - **Expected**: Brave restores the two windows, startup-recovery runs Jaccard overlap matching, and both windows rebind to their respective workspaces without creating duplicate windows.
+## Look and feel
 
-### 5. Service Worker Cold Start
-
-- [ ] **Idle Sleep Test**:
-  - Leave the browser completely untouched for 5 minutes (MV3 service worker goes inactive).
-  - In `brave://extensions`, inspect the service worker state (shows `(inactive)`).
-  - Click a workspace card in the side panel or use `Ctrl+Shift+W`.
-  - **Expected**: The service worker wakes up cleanly, bindings in `chrome.storage.session` remain valid, and the window focuses/opens immediately.
-
-### 6. Deletion Behavior
-
-- [ ] **Delete open workspace**:
-  - With a workspace window currently open, click `... -> Delete Workspace`.
-  - Confirm deletion.
-  - **Expected**: The workspace is removed from storage and panel. The browser window remains open, and the footer transitions to "Unmanaged window".
-
-### 7. Backup, Export, and Import
-
-- [ ] **Export JSON**:
-  - Go to Options (`⚙️` button in side panel).
-  - Click **Export Workspaces (JSON)**.
-  - **Expected**: `brave-workspaces-backup-YYYY-MM-DD.json` downloads.
-- [ ] **Reset & Restore**:
-  - Click **Reset All Data** in the Danger Zone.
-  - Verify workspaces are wiped/reset.
-  - Click **Import Workspaces**, select the downloaded JSON (or `test/fixtures/sample-workspaces.json`).
-  - **Expected**: Workspaces, tab groups, and tabs are fully restored.
-
-### 8. Drag-and-Drop Operations
-
-- [ ] **Reorder workspaces**:
-  - Drag a workspace card up or down in the panel list.
-  - **Expected**: Cards reorder smoothly and the order persists after reloading the panel.
-- [ ] **Move tab between workspaces via panel**:
-  - Expand Workspace A in the side panel.
-  - Drag a tab item from Workspace A and drop it onto Workspace B's card.
-  - **Expected**: Tab is moved to Workspace B.
+- [ ] Check light and dark OS themes in the panel, popup, options page and dialogs.
+- [ ] Navigate with the keyboard only: `/`, the arrow keys, `Enter`, `F2`, `Del`, `Esc` and `N`.

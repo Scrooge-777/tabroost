@@ -1,0 +1,10 @@
+{
+  "name": "workspaces-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Edge-style workspaces for Brave and Chrome (Manifest V3)",
+  "scripts": {
+    "test": "node test/check-imports.mjs && node test/flows.test.mjs",
+    "test:browser": "node test/browser-smoke.cjs"
+  }
+}

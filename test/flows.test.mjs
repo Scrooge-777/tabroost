@@ -259,9 +259,16 @@ await test('drag-merging two live tabs creates a group and returns its persisten
   const stored = await workspaceManager.getWorkspace(ws.id);
   const free = stored.tabs.filter((t) => !t.pinned && !t.groupId);
   assert.ok(free.length >= 2, 'needs two ungrouped tabs');
+  // Another window has focus: the new group must still be created in the workspace's window
+  const focusThief = seedWindow(['https://focus.example/'], { focused: true });
+  const wsWinId = await windowRegistry.getWindowForWorkspace(ws.id);
+  const countBefore = getWindow(wsWinId).tabs.length;
   const res = await send(MESSAGE_TYPES.MERGE_TABS_INTO_GROUP, {
     sourceWorkspaceId: ws.id, sourceTabId: free[0].id, targetWorkspaceId: ws.id, targetTabId: free[1].id
   });
+  assert.equal(getWindow(wsWinId).tabs.length, countBefore, 'tabs must stay in the workspace window');
+  assert.equal(getWindow(focusThief.id).tabs.length, 1, 'focused window must not receive the tabs');
+  await chrome.windows.remove(focusThief.id);
   assert.equal(res.success, true);
   assert.equal(res.isNew, true);
   assert.equal(typeof res.groupId, 'string');
