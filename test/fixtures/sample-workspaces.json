@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "settings": {
+    "closeWindowOnWorkspaceSwitch": false,
+    "restoreOnStartup": true,
+    "confirmDelete": true,
+    "accentBorder": true
+  },
+  "workspaces": {
+    "ws_college": {
+      "id": "ws_college",
+      "name": "College",
+      "color": "blue",
+      "icon": "book",
+      "createdAt": 1737100000000,
+      "updatedAt": 1737100500000,
+      "lastOpenedAt": 1737100500000,
+      "tabs": [
+        {
+          "id": "t_101",
+          "url": "https://en.wikipedia.org/wiki/Computer_science",
+          "title": "Computer science - Wikipedia",
+          "favIconUrl": "https://en.wikipedia.org/static/favicon/wikipedia.ico",
+          "pinned": true,
+          "index": 0,
+          "groupId": null,
+          "active": false
+        },
+        {
+          "id": "t_102",
+          "url": "https://arxiv.org",
+          "title": "arXiv.org e-Print archive",
+          "favIconUrl": "https://arxiv.org/favicon.ico",
+          "pinned": false,
+          "index": 1,
+          "groupId": "g_res_1",
+          "active": true
+        },
+        {
+          "id": "t_103",
+          "url": "https://scholar.google.com",
+          "title": "Google Scholar",
+          "favIconUrl": "",
+          "pinned": false,
+          "index": 2,
+          "groupId": "g_res_1",
+          "active": false
+        }
+      ],
+      "groups": [
+        {
+          "id": "g_res_1",
+          "title": "Research",
+          "color": "cyan",
+          "collapsed": false
+        }
+      ]
+    },
+    "ws_sih": {
+      "id": "ws_sih",
+      "name": "SIH Project",
+      "color": "cyan",
+      "icon": "code",
+      "createdAt": 1737101000000,
+      "updatedAt": 1737101200000,
+      "lastOpenedAt": 1737101200000,
+      "tabs": [
+        {
+          "id": "t_201",
+          "url": "https://github.com",
+          "title": "GitHub",
+          "favIconUrl": "https://github.githubassets.com/favicons/favicon.png",
+          "pinned": false,
+          "index": 0,
+          "groupId": null,
+          "active": true
+        },
+        {
+          "id": "t_202",
+          "url": "https://developer.mozilla.org",
+          "title": "MDN Web Docs",
+          "favIconUrl": "https://developer.mozilla.org/favicon.ico",
+          "pinned": false,
+          "index": 1,
+          "groupId": null,
+          "active": false
+        }
+      ],
+      "groups": []
+    },
+    "ws_personal": {
+      "id": "ws_personal",
+      "name": "Personal",
+      "color": "green",
+      "icon": "smile",
+      "createdAt": 1737102000000,
+      "updatedAt": 1737102100000,
+      "lastOpenedAt": 1737102100000,
+      "tabs": [
+        {
+          "id": "t_301",
+          "url": "https://news.ycombinator.com",
+          "title": "Hacker News",
+          "favIconUrl": "https://news.ycombinator.com/favicon.ico",
+          "pinned": false,
+          "index": 0,
+          "groupId": null,
+          "active": true
+        }
+      ],
+      "groups": []
+    }
+  },
+  "workspaceOrder": [
+    "ws_college",
+    "ws_sih",
+    "ws_personal"
+  ]
+}

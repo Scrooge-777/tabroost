@@ -1,0 +1,86 @@
+{
+  "manifest_version": 3,
+  "name": "Workspaces",
+  "version": "0.2.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy9U89wKSMOtxDVnRBGdj8OMNTLTB2D187sPQBuHFehgjOmNgIlPGSUyd/YklS9V06PJ+DgEQhfUig9zMF8k4vDezk4/IixDfbtWS1zcl4/MizDXx556gjEbl/KQ1D6GBeRZL2F4znBOx3vLX0Y+SMXuArj6ymeFMJd72uW2cEISDig48jEyHpZ5nuk+G0ZFTYWMboB+UJG2YZEe5V6dNmq0/bgeFMvIFDHZizHCM785EBgtrrgrJyL1ddQnX5lOL7LJWH0pjVI3QzZPMN6zwPHIx0a2gsBUyqbQTo1vNBPw0QggEqxkNAoQmqbdBGYl2jIUh/TbjvEQzhyQo2JTuDQIDAQAB",
+  "description": "Edge-style workspaces and persistent tab groups.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "storage",
+    "sidePanel",
+    "favicon",
+    "contextMenus",
+    "sessions"
+  ],
+  "optional_permissions": [
+    "scripting"
+  ],
+  "host_permissions": [],
+  "background": {
+    "service_worker": "src/background/service-worker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/panel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "src/content/accent-border.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Workspaces",
+    "default_popup": "src/sidepanel/popup.html",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png",
+      "48": "assets/icons/icon-48.png",
+      "128": "assets/icons/icon-128.png"
+    }
+  },
+  "options_page": "src/options/options.html",
+  "commands": {
+    "open-switcher": {
+      "suggested_key": {
+        "default": "Alt+Shift+W"
+      },
+      "description": "Open workspace switcher"
+    },
+    "new-workspace": {
+      "suggested_key": {
+        "default": "Alt+Shift+N"
+      },
+      "description": "New workspace"
+    }
+  },
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/sidepanel/*",
+        "src/sidepanel/components/*",
+        "src/shared/*",
+        "assets/*",
+        "assets/icons/*"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ]
+}
