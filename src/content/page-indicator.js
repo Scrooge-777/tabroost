@@ -43,20 +43,23 @@
       <style>
         :host { all: initial; }
         .border { position: fixed; top: 0; left: 0; right: 0; height: 3px; pointer-events: none; display: none; }
+        /* Compact solid dot by default (covers almost nothing); expands to show the name on hover */
         .pill {
-          position: fixed; top: 8px; left: 8px; display: none; align-items: center; gap: 6px;
-          height: 26px; max-width: 200px; padding: 0 10px 0 8px; box-sizing: border-box;
-          border: 1px solid rgba(255,255,255,.14); border-radius: 13px;
-          background: rgba(32,33,36,.92); color: #fff; cursor: pointer;
+          position: fixed; top: 8px; left: 8px; display: none; align-items: center; gap: 0;
+          height: 24px; max-width: 24px; padding: 0 7px; box-sizing: border-box; overflow: hidden;
+          border: 1px solid rgba(255,255,255,.18); border-radius: 12px;
+          background: rgb(32,33,36); color: #fff; cursor: pointer;
           font: 600 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
-          box-shadow: 0 2px 10px rgba(0,0,0,.25); opacity: .55;
-          transition: opacity .15s ease, transform .15s ease;
-          backdrop-filter: blur(8px);
+          box-shadow: 0 2px 8px rgba(0,0,0,.3);
+          transition: max-width .2s ease, gap .2s ease, padding .2s ease;
         }
-        .pill:hover, .pill.open, .pill:focus-visible { opacity: 1; transform: translateY(-1px); outline: none; }
+        .pill:hover, .pill.open, .pill:focus-visible { max-width: 220px; gap: 6px; padding: 0 10px 0 8px; outline: none; }
         .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+        .name, .chev { opacity: 0; transition: opacity .15s ease; }
+        .pill:hover .name, .pill:hover .chev, .pill.open .name, .pill.open .chev,
+        .pill:focus-visible .name, .pill:focus-visible .chev { opacity: 1; }
         .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .chev { flex: none; opacity: .7; transition: transform .15s ease; }
+        .chev { flex: none; transition: transform .15s ease, opacity .15s ease; }
         .pill.open .chev { transform: rotate(180deg); }
         iframe {
           position: fixed; top: 40px; left: 8px; width: 360px; max-width: calc(100vw - 16px);
