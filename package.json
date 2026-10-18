@@ -5,6 +5,15 @@
   "description": "Edge-style workspaces for Brave and Chrome (Manifest V3)",
   "scripts": {
     "test": "node test/check-imports.mjs && node test/flows.test.mjs",
-    "test:browser": "node test/browser-smoke.cjs"
+    "test:browser": "node test/browser-smoke.cjs",
+    "test:page": "node test/page-indicator-smoke.cjs"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Scrooge-777/workspaces.git"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

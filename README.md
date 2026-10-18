@@ -1,5 +1,7 @@
 # Workspaces
 
+[![CI](https://github.com/Scrooge-777/workspaces/actions/workflows/ci.yml/badge.svg)](https://github.com/Scrooge-777/workspaces/actions/workflows/ci.yml)
+
 Edge-style workspaces for Brave and Chrome (Manifest V3).
 
 A workspace is a **named, colored set of tabs and tab groups that lives in its own window**. Close the window when you're done; reopen the workspace later and every tab, pinned tab, tab group (with its color and collapsed state), and the window's size come back exactly as they were.
@@ -19,10 +21,13 @@ A workspace is a **named, colored set of tabs and tab groups that lives in its o
 
 ## Install (unpacked)
 
-1. Open `brave://extensions` (or `chrome://extensions`).
-2. Turn on **Developer mode**.
-3. Click **Load unpacked** and select this folder (`S:\Works\Projects\extension\Workspaces`).
-4. Pin **Workspaces** to the toolbar.
+1. Get the code: `git clone https://github.com/Scrooge-777/workspaces.git`, or download the ZIP from GitHub and extract it.
+2. Open `brave://extensions` (or `chrome://extensions`).
+3. Turn on **Developer mode**.
+4. Click **Load unpacked** and select the cloned folder (the one containing `manifest.json`).
+5. Pin **Workspaces** to the toolbar.
+
+Requires Chrome or Brave 116 or newer.
 
 ## Using it
 
@@ -82,12 +87,13 @@ src/
 ```bash
 npm test                 # import check + 43 logic tests against a chrome.* mock
 npm run test:browser     # loads the extension in headless Brave via playwright-core
+npm run test:page        # on-page pill + accent border in a real browser
 ```
 
-The browser test needs `playwright-core` installed or pointed to with `PLAYWRIGHT=<path>`. Point `BROWSER=<path>` at Brave or Chrome if it isn't in the default location. Screenshots are written to a temp folder, or to the folder given as the first argument.
+The browser tests need `playwright-core` installed or pointed to with `PLAYWRIGHT=<path>`. Point `BROWSER=<path>` at Brave or Chrome if it isn't in the default location. Screenshots are written to a temp folder, or to the folder given as the first argument.
 
 See `test/manual-checklist.md` for the hands-on test pass.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).

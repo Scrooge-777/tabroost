@@ -5,3 +5,6 @@ node_modules/
 dist/
 .vscode/
 .idea/
+*.pem
+*.crx
+*.zip
