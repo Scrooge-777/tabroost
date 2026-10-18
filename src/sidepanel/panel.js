@@ -96,7 +96,7 @@ class SidePanelApp {
   renderShell() {
     this.root.innerHTML = `
       <header class="topbar">
-        <div class="brand">${ICONS.logo}<span>Workspaces</span></div>
+        <div class="brand">${ICONS.logo}<span>Tabroost</span></div>
         <div class="topbar-actions">
           <button type="button" class="icon-btn" data-act="new" title="New workspace (N)" aria-label="New workspace" aria-haspopup="menu">${ICONS.plus}</button>
           ${IS_TRANSIENT ? `<button type="button" class="icon-btn" data-act="dock" title="Open in side panel" aria-label="Open in side panel">${ICONS.panel}</button>` : ''}
@@ -756,5 +756,5 @@ class SidePanelApp {
 
 document.addEventListener('DOMContentLoaded', () => {
   const app = new SidePanelApp(document.getElementById('app'));
-  app.init().catch((err) => console.error('Workspaces panel failed to start', err));
+  app.init().catch((err) => console.error('Tabroost panel failed to start', err));
 });

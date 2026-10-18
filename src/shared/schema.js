@@ -1,5 +1,5 @@
 /**
- * Data shapes, validation, and migration for Workspaces
+ * Data shapes, validation, and migration for Tabroost
  */
 
 import { SCHEMA_VERSION, DEFAULT_SETTINGS, SETTING_KEYS } from './constants.js';

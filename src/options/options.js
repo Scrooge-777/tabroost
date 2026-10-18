@@ -33,8 +33,8 @@ class OptionsApp {
   }
 
   async init() {
-    document.querySelector('[data-logo]').innerHTML = `${ICONS.logo}<span>Workspaces</span>`;
-    document.getElementById('version').textContent = `Workspaces ${chrome.runtime.getManifest().version}`;
+    document.querySelector('[data-logo]').innerHTML = `${ICONS.logo}<span>Tabroost</span>`;
+    document.getElementById('version').textContent = `Tabroost ${chrome.runtime.getManifest().version}`;
 
     await this.loadSettings();
     this.bindEvents();

@@ -1,0 +1,294 @@
+{
+	"nodes": [
+		{
+			"id": "title",
+			"type": "text",
+			"x": 0,
+			"y": -300,
+			"width": 1300,
+			"height": 120,
+			"text": "# 🪺 Tabroost — how it works\nEach **workspace** is a named, colored window. Open = it has a live window. Closed = it lives only in storage.",
+			"color": "6"
+		},
+		{
+			"id": "g-ui",
+			"type": "group",
+			"x": -20,
+			"y": -140,
+			"width": 1340,
+			"height": 200,
+			"label": "User interface",
+			"color": "5"
+		},
+		{
+			"id": "panel",
+			"type": "text",
+			"x": 0,
+			"y": -100,
+			"width": 240,
+			"height": 120,
+			"text": "**Side panel**\nFull manager: list, tabs, groups, search"
+		},
+		{
+			"id": "popup",
+			"type": "text",
+			"x": 260,
+			"y": -100,
+			"width": 240,
+			"height": 120,
+			"text": "**Toolbar popup**\nQuick switcher + \"Back to …\" chip"
+		},
+		{
+			"id": "flyout",
+			"type": "text",
+			"x": 520,
+			"y": -100,
+			"width": 240,
+			"height": 120,
+			"text": "**Page flyout**\nSwitcher opened from the page pill"
+		},
+		{
+			"id": "options",
+			"type": "text",
+			"x": 780,
+			"y": -100,
+			"width": 240,
+			"height": 120,
+			"text": "**Options page**\nSettings, backups, export / import"
+		},
+		{
+			"id": "pill",
+			"type": "text",
+			"x": 1040,
+			"y": -100,
+			"width": 260,
+			"height": 120,
+			"text": "**Page pill + accent border**\nOptional content script, off by default"
+		},
+		{
+			"id": "g-sw",
+			"type": "group",
+			"x": -20,
+			"y": 140,
+			"width": 1340,
+			"height": 460,
+			"label": "Background service worker",
+			"color": "4"
+		},
+		{
+			"id": "router",
+			"type": "text",
+			"x": 500,
+			"y": 170,
+			"width": 300,
+			"height": 90,
+			"text": "**router.js**\nchrome.runtime messages → actions"
+		},
+		{
+			"id": "wm",
+			"type": "text",
+			"x": 500,
+			"y": 320,
+			"width": 300,
+			"height": 110,
+			"text": "**workspace-manager.js**\nState, CRUD, tab and group ops.\nEvery write goes through the mutate() lock."
+		},
+		{
+			"id": "tabsync",
+			"type": "text",
+			"x": 0,
+			"y": 320,
+			"width": 300,
+			"height": 110,
+			"text": "**tab-sync.js**\nTab / group / window events → debounced snapshot (~0.5 s)"
+		},
+		{
+			"id": "opener",
+			"type": "text",
+			"x": 1000,
+			"y": 320,
+			"width": 300,
+			"height": 110,
+			"text": "**window-opener.js**\nOpen, focus or close a workspace window"
+		},
+		{
+			"id": "groups",
+			"type": "text",
+			"x": 1000,
+			"y": 470,
+			"width": 300,
+			"height": 100,
+			"text": "**group-sync.js**\nRestore native tab groups (name, color, collapsed)"
+		},
+		{
+			"id": "registry",
+			"type": "text",
+			"x": 640,
+			"y": 470,
+			"width": 320,
+			"height": 100,
+			"text": "**window-registry.js**\nwindow ↔ workspace bindings + live tab/group ID maps"
+		},
+		{
+			"id": "recovery",
+			"type": "text",
+			"x": 280,
+			"y": 470,
+			"width": 320,
+			"height": 100,
+			"text": "**startup-recovery.js**\nAfter restart: re-bind windows with ≥ 50 % URL overlap"
+		},
+		{
+			"id": "extras",
+			"type": "text",
+			"x": 0,
+			"y": 470,
+			"width": 240,
+			"height": 100,
+			"text": "**backups.js · badge.js · context-menus.js**\n10 snapshots every 6 h; toolbar badge; right-click menus"
+		},
+		{
+			"id": "g-data",
+			"type": "group",
+			"x": -20,
+			"y": 680,
+			"width": 1340,
+			"height": 180,
+			"label": "Storage",
+			"color": "3"
+		},
+		{
+			"id": "local",
+			"type": "text",
+			"x": 100,
+			"y": 710,
+			"width": 480,
+			"height": 120,
+			"text": "**chrome.storage.local**\nWorkspaces, tabs, groups, settings, backups.\nSurvives browser restarts."
+		},
+		{
+			"id": "session",
+			"type": "text",
+			"x": 720,
+			"y": 710,
+			"width": 480,
+			"height": 120,
+			"text": "**chrome.storage.session**\nWindow bindings, live ID maps.\nSurvives worker sleep, cleared on browser exit."
+		}
+	],
+	"edges": [
+		{
+			"id": "panel-router",
+			"fromNode": "panel",
+			"fromSide": "bottom",
+			"toNode": "router",
+			"toSide": "top",
+			"label": "messages"
+		},
+		{
+			"id": "popup-router",
+			"fromNode": "popup",
+			"fromSide": "bottom",
+			"toNode": "router",
+			"toSide": "top"
+		},
+		{
+			"id": "flyout-router",
+			"fromNode": "flyout",
+			"fromSide": "bottom",
+			"toNode": "router",
+			"toSide": "top"
+		},
+		{
+			"id": "options-router",
+			"fromNode": "options",
+			"fromSide": "bottom",
+			"toNode": "router",
+			"toSide": "top"
+		},
+		{
+			"id": "pill-router",
+			"fromNode": "pill",
+			"fromSide": "bottom",
+			"toNode": "router",
+			"toSide": "top"
+		},
+		{
+			"id": "router-wm",
+			"fromNode": "router",
+			"fromSide": "bottom",
+			"toNode": "wm",
+			"toSide": "top"
+		},
+		{
+			"id": "tabsync-wm",
+			"fromNode": "tabsync",
+			"fromSide": "right",
+			"toNode": "wm",
+			"toSide": "left",
+			"label": "snapshot"
+		},
+		{
+			"id": "wm-opener",
+			"fromNode": "wm",
+			"fromSide": "right",
+			"toNode": "opener",
+			"toSide": "left",
+			"label": "open / switch"
+		},
+		{
+			"id": "opener-groups",
+			"fromNode": "opener",
+			"fromSide": "bottom",
+			"toNode": "groups",
+			"toSide": "top"
+		},
+		{
+			"id": "opener-registry",
+			"fromNode": "opener",
+			"fromSide": "bottom",
+			"toNode": "registry",
+			"toSide": "right",
+			"label": "bind"
+		},
+		{
+			"id": "recovery-registry",
+			"fromNode": "recovery",
+			"fromSide": "right",
+			"toNode": "registry",
+			"toSide": "left",
+			"label": "rebind"
+		},
+		{
+			"id": "wm-local",
+			"fromNode": "wm",
+			"fromSide": "bottom",
+			"toNode": "local",
+			"toSide": "top",
+			"label": "save"
+		},
+		{
+			"id": "registry-session",
+			"fromNode": "registry",
+			"fromSide": "bottom",
+			"toNode": "session",
+			"toSide": "top"
+		},
+		{
+			"id": "extras-local",
+			"fromNode": "extras",
+			"fromSide": "bottom",
+			"toNode": "local",
+			"toSide": "top"
+		},
+		{
+			"id": "broadcast",
+			"fromNode": "wm",
+			"fromSide": "top",
+			"toNode": "panel",
+			"toSide": "bottom",
+			"label": "STATE_CHANGED broadcast",
+			"color": "1"
+		}
+	]
+}

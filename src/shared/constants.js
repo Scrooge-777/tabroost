@@ -1,5 +1,5 @@
 /**
- * Storage keys and message constants for Workspaces
+ * Storage keys and message constants for Tabroost
  */
 
 export const SCHEMA_VERSION = 2;

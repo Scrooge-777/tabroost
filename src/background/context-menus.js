@@ -25,7 +25,7 @@ function createItem(props) {
  */
 export function updateContextMenus({ force = false } = {}) {
   rebuilding = rebuilding.then(() => rebuild(force)).catch((err) => {
-    console.warn('Workspaces: Could not populate context menus:', err);
+    console.warn('Tabroost: Could not populate context menus:', err);
   });
   return rebuilding;
 }
@@ -39,7 +39,7 @@ async function rebuild(force) {
   lastSignature = signature;
 
   await chrome.contextMenus.removeAll();
-  await createItem({ id: 'open-side-panel', title: 'Open Workspaces panel', contexts: CONTEXTS });
+  await createItem({ id: 'open-side-panel', title: 'Open Tabroost panel', contexts: CONTEXTS });
   await createItem({ id: 'save-window-as-workspace', title: 'Save this window as a workspace', contexts: CONTEXTS });
 
   if (list.length > 0) {
@@ -78,7 +78,7 @@ export function registerContextMenuHandlers() {
         }
       }
     } catch (err) {
-      console.warn('Workspaces: context menu action failed', err);
+      console.warn('Tabroost: context menu action failed', err);
     }
   });
 }

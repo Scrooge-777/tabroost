@@ -106,7 +106,7 @@
     const pill = shadow.querySelector('.pill');
     pill.style.display = data.showPill ? 'flex' : 'none';
     shadow.querySelector('.dot').style.background = color;
-    shadow.querySelector('.name').textContent = ws ? `${ws.icon ? ws.icon + ' ' : ''}${ws.name}` : 'Workspaces';
+    shadow.querySelector('.name').textContent = ws ? `${ws.icon ? ws.icon + ' ' : ''}${ws.name}` : 'Tabroost';
     pill.title = ws ? `Workspace: ${ws.name}` : 'This window is not a workspace';
   }
 
@@ -119,7 +119,7 @@
     if (!alive() || !shadow) return;
     flyout = document.createElement('iframe');
     flyout.src = chrome.runtime.getURL('src/sidepanel/panel.html?mode=flyout');
-    flyout.title = 'Workspaces';
+    flyout.title = 'Tabroost';
     shadow.appendChild(flyout);
     const pill = shadow.querySelector('.pill');
     pill.classList.add('open');

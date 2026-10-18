@@ -1,4 +1,4 @@
-# Workspaces — Manual Test Checklist
+# Tabroost — Manual Test Checklist
 
 Run through this list in real Brave or Chrome after significant changes. `npm test` and `npm run test:browser` already cover the core logic and the main UI flows.
 

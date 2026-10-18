@@ -1,5 +1,5 @@
 /**
- * Common utilities for Workspaces
+ * Common utilities for Tabroost
  */
 
 /**

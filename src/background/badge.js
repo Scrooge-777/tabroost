@@ -28,14 +28,14 @@ export async function updateToolbarBadge(windowId = null) {
 
     if (!ws) {
       await chrome.action.setBadgeText({ text: '' });
-      await chrome.action.setTitle?.({ title: 'Workspaces' });
+      await chrome.action.setTitle?.({ title: 'Tabroost' });
       return;
     }
 
     await chrome.action.setBadgeText({ text: abbreviate(ws) });
     await chrome.action.setBadgeBackgroundColor?.({ color: getColor(ws.color).hex });
     await chrome.action.setBadgeTextColor?.({ color: '#ffffff' });
-    await chrome.action.setTitle?.({ title: `Workspaces — ${ws.name}` });
+    await chrome.action.setTitle?.({ title: `Tabroost — ${ws.name}` });
   } catch {
     // Window closed mid-update
   }

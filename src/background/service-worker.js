@@ -1,5 +1,5 @@
 /**
- * Service Worker — Entry point for Workspaces extension
+ * Service Worker — Entry point for the Tabroost extension
  * Initializes listeners, session storage, side panel behavior, and startup recovery.
  */
 
@@ -28,7 +28,7 @@ registerContextMenuHandlers();
 backups.registerAlarmHandler();
 
 chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log('Workspaces installed or updated:', details.reason);
+  console.log('Tabroost installed or updated:', details.reason);
   await updateContextMenus({ force: true });
   await backups.ensureAlarm().catch(() => {});
   await pageFeatures.sync().catch(() => {});
