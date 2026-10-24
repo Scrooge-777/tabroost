@@ -6,7 +6,7 @@
  * concurrent saves (tab sync + UI actions) can never clobber each other.
  */
 
-import { STORAGE_KEYS } from '../shared/constants.js';
+import { STORAGE_KEYS, SYNC_TOMBSTONE_TTL_MS } from '../shared/constants.js';
 import { storage } from '../shared/storage.js';
 import {
   createWorkspaceModel,
@@ -129,7 +129,8 @@ export const workspaceManager = {
       STORAGE_KEYS.WORKSPACES,
       STORAGE_KEYS.WORKSPACE_ORDER,
       STORAGE_KEYS.SETTINGS,
-      STORAGE_KEYS.SCHEMA_VERSION
+      STORAGE_KEYS.SCHEMA_VERSION,
+      STORAGE_KEYS.TOMBSTONES
     ]);
     return migrateStorageData(raw);
   },
@@ -172,7 +173,8 @@ export const workspaceManager = {
       await storage.setLocal({
         [STORAGE_KEYS.SCHEMA_VERSION]: state.schemaVersion,
         [STORAGE_KEYS.WORKSPACES]: state.workspaces,
-        [STORAGE_KEYS.WORKSPACE_ORDER]: state.workspaceOrder
+        [STORAGE_KEYS.WORKSPACE_ORDER]: state.workspaceOrder,
+        [STORAGE_KEYS.TOMBSTONES]: state.tombstones
       });
       return result;
     });
@@ -267,6 +269,12 @@ export const workspaceManager = {
       const index = state.workspaceOrder.indexOf(id);
       delete state.workspaces[id];
       state.workspaceOrder = state.workspaceOrder.filter((wId) => wId !== id);
+      // Remember the deletion so cloud sync does not bring the workspace back
+      const now = Date.now();
+      state.tombstones[id] = now;
+      for (const [tid, at] of Object.entries(state.tombstones)) {
+        if (now - at > SYNC_TOMBSTONE_TTL_MS) delete state.tombstones[tid];
+      }
       return { workspace: ws, index };
     });
 
@@ -283,6 +291,8 @@ export const workspaceManager = {
     return this.mutate((state) => {
       const clean = sanitizeWorkspace(workspace, workspace.id);
       if (state.workspaces[clean.id]) clean.id = generateId('ws');
+      delete state.tombstones[clean.id];
+      clean.updatedAt = Date.now();
       state.workspaces[clean.id] = clean;
       const pos = index >= 0 && index <= state.workspaceOrder.length ? index : state.workspaceOrder.length;
       state.workspaceOrder.splice(pos, 0, clean.id);

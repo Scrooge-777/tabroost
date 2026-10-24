@@ -262,7 +262,8 @@ class SidePanelApp {
     } catch (err) {
       console.warn('load error:', err);
       if (!this.loaded) {
-        this.el.list.innerHTML = `<div class="empty"><p class="empty-text">Could not reach the extension. Try reopening this panel.</p></div>`;
+        this.el.list.innerHTML = `<div class="empty"><p class="empty-text">Could not reach the extension.<br><span class="muted">${escapeHtml(err?.message || '')}</span></p><button type="button" class="btn is-primary is-sm" data-act="retry">Retry</button></div>`;
+        this.el.list.querySelector('[data-act="retry"]')?.addEventListener('click', () => this.load());
       }
     }
   }

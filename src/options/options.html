@@ -78,9 +78,9 @@
         <div class="row">
           <span class="row-text">
             <span class="row-title">Master encryption passphrase</span>
-            <span class="row-desc">All workspace data is encrypted with this passphrase before leaving your browser.</span>
+            <span class="row-desc">All workspace data is encrypted with this passphrase before leaving your browser. Use at least 8 characters. It cannot be recovered if lost.</span>
           </span>
-          <input type="password" class="input" style="width: 260px;" data-setting="syncPassphrase" placeholder="Passphrase...">
+          <input type="password" class="input" style="width: 260px;" data-secret="passphrase" autocomplete="off" minlength="8" placeholder="At least 8 characters">
         </div>
 
         <div class="row">
@@ -88,8 +88,16 @@
             <span class="row-title">GitHub Personal Access Token (PAT)</span>
             <span class="row-desc">Needs <code>gist</code> scope to store encrypted data in a private secret Gist.</span>
           </span>
-          <input type="password" class="input" style="width: 260px;" data-setting="syncGistToken" placeholder="ghp_...">
+          <input type="password" class="input" style="width: 260px;" data-secret="token" autocomplete="off" placeholder="ghp_...">
         </div>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Remember token and passphrase on this device</span>
+            <span class="row-desc">Off (safer): they are kept for this browser session only and you re-enter the passphrase after restarting. On: they are stored unencrypted in this browser profile so background sync keeps working.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="syncRememberSecrets">
+        </label>
 
         <div class="row">
           <span class="row-text">

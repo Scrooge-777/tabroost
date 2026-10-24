@@ -10,13 +10,17 @@ export const STORAGE_KEYS = {
   WORKSPACE_ORDER: 'workspaceOrder',
   SETTINGS: 'settings',
   BACKUPS: 'backups',
+  TOMBSTONES: 'tombstones',
+  SYNC_SECRETS: 'syncSecrets',
 
   // Session storage keys
   WINDOW_BINDINGS: 'windowBindings',
   ACTIVE_WORKSPACE_ID: 'activeWorkspaceId',
   PREVIOUS_WORKSPACE_ID: 'previousWorkspaceId',
   SUPPRESS_SYNC: 'suppressSync',
-  LIVE_MAPS: 'liveMaps'
+  LIVE_MAPS: 'liveMaps',
+  SYNC_LOCK: 'syncLock',
+  SYNC_BACKOFF: 'syncBackoff'
 };
 
 export const DEFAULT_SETTINGS = {
@@ -31,10 +35,9 @@ export const DEFAULT_SETTINGS = {
   autoBackup: true,
   lazyRestoreTabs: true,
   syncEnabled: false,
-  syncProvider: 'gist', // 'gist' | 'custom'
-  syncGistToken: '',
+  syncProvider: 'gist',
   syncGistId: '',
-  syncPassphrase: '',
+  syncRememberSecrets: false, // keep token + passphrase on disk instead of session-only
   syncIntervalMinutes: 30,
   lastSyncedAt: null
 };
@@ -45,6 +48,14 @@ export const MAX_BACKUPS = 10;
 export const BACKUP_ALARM = 'workspaces-auto-backup';
 export const BACKUP_INTERVAL_MINUTES = 60 * 6;
 export const SYNC_ALARM = 'workspaces-cloud-sync';
+export const SYNC_TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const SYNC_MIN_PASSPHRASE_LENGTH = 8;
+export const SYNC_PAYLOAD_VERSION = 2;
+export const EXPORT_APP_NAME = 'tabroost';
+export const LEGACY_EXPORT_APP_NAME = 'workspaces';
+
+/** Secrets that must never be part of settings, exports or backups */
+export const LEGACY_SECRET_SETTING_KEYS = ['syncGistToken', 'syncPassphrase'];
 
 export const PAGE_SCRIPT_ID = 'workspaces-page-indicator';
 
@@ -98,7 +109,7 @@ export const MESSAGE_TYPES = {
   INDICATOR_REFRESH: 'INDICATOR_REFRESH',
 
   // Flyout iframe -> content script (window.postMessage)
-  CLOSE_FLYOUT: 'CLOSE_WORKSPACES_FLYOUT'
+  CLOSE_FLYOUT: 'CLOSE_TABROOST_FLYOUT'
 };
 
 /** Message types that are broadcasts, never requests for the router */

@@ -2,7 +2,7 @@
  * Data shapes, validation, and migration for Tabroost
  */
 
-import { SCHEMA_VERSION, DEFAULT_SETTINGS, SETTING_KEYS } from './constants.js';
+import { SCHEMA_VERSION, DEFAULT_SETTINGS, SETTING_KEYS, SYNC_PAYLOAD_VERSION } from './constants.js';
 import { DEFAULT_COLOR, isValidColor } from './colors.js';
 import { generateId, NEW_TAB_URL } from './utils.js';
 
@@ -168,6 +168,46 @@ export function sanitizeSettings(raw = {}) {
 }
 
 /**
+ * Deleted workspace ids -> deletion time. Lets sync tell "deleted here" from "never had it".
+ */
+export function sanitizeTombstones(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [id, at] of Object.entries(raw)) {
+    if (typeof at === 'number' && Number.isFinite(at) && at > 0) out[String(id)] = at;
+  }
+  return out;
+}
+
+/**
+ * Validate and clean a payload decrypted from the cloud. Anything malformed throws,
+ * so a corrupt or hostile remote can never reach storage unsanitized.
+ */
+export function sanitizeSyncPayload(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Remote sync payload is not an object');
+  }
+  if (raw.schemaVersion !== undefined && (!Number.isInteger(raw.schemaVersion) || raw.schemaVersion > SYNC_PAYLOAD_VERSION)) {
+    throw new Error('Remote data was written by a newer Tabroost. Update this device first.');
+  }
+  if (raw.workspaces !== undefined && (typeof raw.workspaces !== 'object' || raw.workspaces === null || Array.isArray(raw.workspaces))) {
+    throw new Error('Remote sync payload has invalid workspaces');
+  }
+
+  const workspaces = {};
+  for (const [id, ws] of Object.entries(raw.workspaces || {})) {
+    if (ws && typeof ws === 'object' && ws.name) {
+      const clean = sanitizeWorkspace(ws, id);
+      workspaces[clean.id] = clean;
+    }
+  }
+  const workspaceOrder = Array.isArray(raw.workspaceOrder)
+    ? [...new Set(raw.workspaceOrder.map(String))].filter((id) => workspaces[id])
+    : [];
+  return { workspaces, workspaceOrder, tombstones: sanitizeTombstones(raw.tombstones) };
+}
+
+/**
  * Ensure storage shape conforms to the current schema (v1 data migrates in place)
  */
 export function migrateStorageData(raw = {}) {
@@ -177,7 +217,8 @@ export function migrateStorageData(raw = {}) {
     schemaVersion: SCHEMA_VERSION,
     settings: sanitizeSettings(data.settings),
     workspaces: {},
-    workspaceOrder: []
+    workspaceOrder: [],
+    tombstones: sanitizeTombstones(data.tombstones)
   };
 
   if (data.workspaces && typeof data.workspaces === 'object') {

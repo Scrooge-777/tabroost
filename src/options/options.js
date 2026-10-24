@@ -29,6 +29,7 @@ const COMMAND_LABELS = {
 class OptionsApp {
   constructor() {
     this.inputs = [...document.querySelectorAll('[data-setting]')];
+    this.secretInputs = [...document.querySelectorAll('[data-secret]')];
     this.settings = {};
   }
 
@@ -74,6 +75,22 @@ class OptionsApp {
   }
 
   bindEvents() {
+    for (const input of this.secretInputs) {
+      input.addEventListener('change', async () => {
+        const field = input.dataset.secret;
+        const value = input.value;
+        if (!value) return;
+        try {
+          await sendBackgroundMessage(MESSAGE_TYPES.UPDATE_SYNC_CONFIG, { secrets: { [field]: value } });
+          input.value = '';
+          toast('Saved', { type: 'success', duration: 1500 });
+          await this.renderSyncStatus();
+        } catch (err) {
+          toastError(err, 'Could not save');
+        }
+      });
+    }
+
     for (const input of this.inputs) {
       input.addEventListener('change', async () => {
         const key = input.dataset.setting;
@@ -148,8 +165,16 @@ class OptionsApp {
     if (!statusEl) return;
     try {
       const status = await sendBackgroundMessage(MESSAGE_TYPES.GET_SYNC_STATUS);
+      for (const input of this.secretInputs) {
+        const has = input.dataset.secret === 'token' ? status.hasToken : status.hasPassphrase;
+        input.placeholder = has ? '•••••••• saved. Type to replace' : input.dataset.secret === 'token' ? 'ghp_...' : 'At least 8 characters';
+      }
       if (!status.enabled) {
         statusEl.textContent = 'Sync is currently off';
+      } else if (!status.hasPassphrase || !status.hasToken) {
+        statusEl.textContent = !status.hasPassphrase ? 'Locked: enter your passphrase to sync' : 'Add a GitHub token to sync';
+      } else if (status.retryAt) {
+        statusEl.textContent = `Rate limited or failing. Next automatic retry ${new Date(status.retryAt).toLocaleTimeString()}`;
       } else if (status.lastSyncedAt) {
         statusEl.textContent = `Last synced ${timeAgo(status.lastSyncedAt)}`;
       } else {

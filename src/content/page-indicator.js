@@ -10,12 +10,12 @@
 
 (() => {
   if (window.top !== window.self) return;
-  if (window.__workspacesIndicator) {
-    window.__workspacesIndicator.refresh();
+  if (window.__tabroostIndicator) {
+    window.__tabroostIndicator.refresh();
     return;
   }
 
-  const HOST_ID = 'workspaces-ext-indicator';
+  const HOST_ID = 'tabroost-ext-indicator';
   const COLORS = {
     blue: '#1a73e8', cyan: '#007b83', green: '#188038', yellow: '#e8a200', orange: '#e8710a',
     red: '#d93025', pink: '#d01884', purple: '#a142f4', grey: '#5f6368'
@@ -239,7 +239,7 @@
   }
 
   window.addEventListener('message', (e) => {
-    if (flyout && e.source === flyout.contentWindow && e.data?.type === 'CLOSE_WORKSPACES_FLYOUT') {
+    if (flyout && e.source === flyout.contentWindow && e.data?.type === 'CLOSE_TABROOST_FLYOUT') {
       closeFlyout();
     }
   });
@@ -253,6 +253,6 @@
     if (msg?.type === 'INDICATOR_REFRESH') refresh();
   });
 
-  window.__workspacesIndicator = { refresh };
+  window.__tabroostIndicator = { refresh };
   refresh();
 })();

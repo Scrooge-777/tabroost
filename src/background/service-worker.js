@@ -13,6 +13,7 @@ import { updateContextMenus, registerContextMenuHandlers } from './context-menus
 import { backups } from './backups.js';
 import { pageFeatures } from './page-features.js';
 import { syncEngine } from './sync-engine.js';
+import { migrateLegacySecrets } from '../shared/secrets.js';
 import { MESSAGE_TYPES, STORAGE_KEYS } from '../shared/constants.js';
 import { debounce } from '../shared/utils.js';
 
@@ -31,6 +32,7 @@ syncEngine.registerAlarmHandler();
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('Tabroost installed or updated:', details.reason);
+  await migrateLegacySecrets().catch(() => {});
   await updateContextMenus({ force: true });
   await backups.ensureAlarm().catch(() => {});
   await syncEngine.ensureAlarm().catch(() => {});
@@ -38,6 +40,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 
 chrome.runtime.onStartup.addListener(async () => {
+  await migrateLegacySecrets().catch(() => {});
   await windowRegistry.cleanupStaleBindings();
   await backups.ensureAlarm().catch(() => {});
   await syncEngine.ensureAlarm().catch(() => {});
@@ -107,6 +110,7 @@ chrome.windows?.onFocusChanged?.addListener((winId) => {
 });
 
 // 6. Worker (re)start: heal bindings, refresh derived UI
+migrateLegacySecrets().catch(() => {});
 windowRegistry.cleanupStaleBindings().catch(() => {});
 updateContextMenus().catch(() => {});
 updateToolbarBadge().catch(() => {});

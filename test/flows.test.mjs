@@ -516,7 +516,35 @@ await test('router rejects unknown message types', async () => {
 
 await test('storage stays small: nothing but known keys in local', async () => {
   const keys = Object.keys(dumpLocal()).sort();
-  for (const k of keys) assert.ok(['backups', 'schemaVersion', 'settings', 'workspaceOrder', 'workspaces'].includes(k), `unexpected key ${k}`);
+  for (const k of keys) assert.ok(['backups', 'schemaVersion', 'settings', 'tombstones', 'workspaceOrder', 'workspaces'].includes(k), `unexpected key ${k}`);
+});
+
+await test('delete leaves a tombstone, undo clears it', async () => {
+  const created = await workspaceManager.createWorkspace({ name: 'Tombstone check' });
+  const removed = await send(MESSAGE_TYPES.DELETE_WORKSPACE, { id: created.id });
+  assert.ok((await workspaceManager.loadState()).tombstones[created.id] > 0);
+  await send(MESSAGE_TYPES.RESTORE_WORKSPACE, { workspace: removed.workspace, index: removed.index });
+  assert.equal((await workspaceManager.loadState()).tombstones[created.id], undefined);
+  await send(MESSAGE_TYPES.DELETE_WORKSPACE, { id: created.id });
+});
+
+await test('restore urls use an allowlist of schemes', () => {
+  assert.equal(sanitizeRestoreUrl('https://example.com/a'), 'https://example.com/a');
+  assert.equal(sanitizeRestoreUrl('brave://settings'), 'chrome://settings');
+  assert.equal(sanitizeRestoreUrl('  javascript:alert(1)'), 'chrome://newtab/');
+  assert.equal(sanitizeRestoreUrl('\u0001javascript:alert(1)'), 'chrome://newtab/');
+  assert.equal(sanitizeRestoreUrl('JaVaScRiPt:alert(1)'), 'chrome://newtab/');
+  assert.equal(sanitizeRestoreUrl('data:text/html,hi'), 'chrome://newtab/');
+  assert.equal(sanitizeRestoreUrl('blob:https://x/1'), 'chrome://newtab/');
+  assert.equal(sanitizeRestoreUrl('ftp://host/file'), 'chrome://newtab/');
+  assert.equal(sanitizeRestoreUrl('file:///C:/a.html'), 'file:///C:/a.html');
+});
+
+await test('export carries no sync settings and import accepts the legacy app name', async () => {
+  const exported = await send(MESSAGE_TYPES.EXPORT);
+  assert.equal(exported.app, 'tabroost');
+  assert.ok(!Object.keys(exported.settings).some((k) => k.startsWith('sync')));
+  assert.doesNotThrow(() => validateImportPayload({ ...exported, app: 'workspaces' }));
 });
 
 console.log(`\n${passed} checks passed${failed ? `, ${failed} failed` : ''}\n`);

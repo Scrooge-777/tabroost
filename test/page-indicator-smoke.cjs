@@ -78,7 +78,7 @@ async function pixelAt(page, x, y) {
       await chrome.runtime.sendMessage({ type: 'CREATE_FROM_CURRENT_WINDOW', windowId: win.id, name: 'Research', color: 'purple', icon: '📚' });
     });
 
-    const hasHost = () => page.evaluate(() => Boolean(document.getElementById('workspaces-ext-indicator')));
+    const hasHost = () => page.evaluate(() => Boolean(document.getElementById('tabroost-ext-indicator')));
 
     await page.bringToFront();
     await page.waitForTimeout(800);
@@ -91,7 +91,7 @@ async function pixelAt(page, x, y) {
     check('page script registered', registered.includes('workspaces-page-indicator'), JSON.stringify(registered));
 
     await page.bringToFront();
-    await page.waitForFunction(() => document.getElementById('workspaces-ext-indicator'), null, { timeout: 5000 }).catch(() => {});
+    await page.waitForFunction(() => document.getElementById('tabroost-ext-indicator'), null, { timeout: 5000 }).catch(() => {});
     check('injected into the already-open page', await hasHost());
 
     await page.reload();
@@ -100,7 +100,7 @@ async function pixelAt(page, x, y) {
     await page.screenshot({ path: path.join(OUT, 'p1-pill-and-border.png') });
 
     // Closed shadow root: probe what is actually on screen at the pill / border positions
-    const pillHit = await page.evaluate(() => document.elementFromPoint(18, 19) === document.getElementById('workspaces-ext-indicator'));
+    const pillHit = await page.evaluate(() => document.elementFromPoint(18, 19) === document.getElementById('tabroost-ext-indicator'));
     check('pill is on screen (top-left)', pillHit);
     // The border is click-through, so read the painted pixel instead (page header is #eee)
     const [r, g, b] = await pixelAt(page, 450, 1);

@@ -2,7 +2,14 @@
  * Router — Handles runtime.onMessage commands from side panel, options, and page scripts
  */
 
-import { MESSAGE_TYPES, STORAGE_KEYS, BROADCAST_TYPES } from '../shared/constants.js';
+import {
+  MESSAGE_TYPES,
+  STORAGE_KEYS,
+  BROADCAST_TYPES,
+  SETTING_KEYS,
+  SYNC_MIN_PASSPHRASE_LENGTH,
+  EXPORT_APP_NAME
+} from '../shared/constants.js';
 import { workspaceManager } from './workspace-manager.js';
 import { windowRegistry } from './window-registry.js';
 import { windowOpener } from './window-opener.js';
@@ -12,6 +19,7 @@ import { syncEngine } from './sync-engine.js';
 import { storage } from '../shared/storage.js';
 import { validateImportPayload, sanitizeWorkspace } from '../shared/schema.js';
 import { generateId } from '../shared/utils.js';
+import { setSyncSecrets, applyRememberChoice, clearSyncSecrets } from '../shared/secrets.js';
 
 export function registerMessageRouter() {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -159,6 +167,9 @@ export async function handleMessage(message, sender = {}) {
 
     case MESSAGE_TYPES.UPDATE_SETTINGS: {
       const updated = await workspaceManager.updateSettings(message.settings || {});
+      if (message.settings && 'syncRememberSecrets' in message.settings) {
+        await applyRememberChoice(Boolean(updated.syncRememberSecrets));
+      }
       await pageFeatures.sync().catch((err) => console.warn('router: page feature sync failed', err));
       await syncEngine.ensureAlarm().catch(() => {});
       return updated;
@@ -175,20 +186,33 @@ export async function handleMessage(message, sender = {}) {
       return syncEngine.getStatus();
 
     case MESSAGE_TYPES.UPDATE_SYNC_CONFIG: {
-      if (message.settings) {
-        await workspaceManager.saveSettings(message.settings);
-        await syncEngine.ensureAlarm().catch(() => {});
+      const secrets = message.secrets || {};
+      if (typeof secrets.passphrase === 'string' && secrets.passphrase !== '' && secrets.passphrase.length < SYNC_MIN_PASSPHRASE_LENGTH) {
+        throw new Error(`Passphrase must be at least ${SYNC_MIN_PASSPHRASE_LENGTH} characters`);
       }
+      let settings = (await workspaceManager.loadState()).settings;
+      if (message.settings) {
+        settings = await workspaceManager.updateSettings(message.settings);
+      }
+      if (message.clearSecrets) {
+        await clearSyncSecrets();
+      } else if (typeof secrets.token === 'string' || typeof secrets.passphrase === 'string') {
+        await setSyncSecrets(secrets, Boolean(settings.syncRememberSecrets));
+      }
+      await syncEngine.ensureAlarm().catch(() => {});
       return syncEngine.getStatus();
     }
 
     case MESSAGE_TYPES.EXPORT: {
       const state = await workspaceManager.loadState();
       return {
-        app: 'workspaces',
+        app: EXPORT_APP_NAME,
         schemaVersion: state.schemaVersion,
         exportedAt: new Date().toISOString(),
-        settings: state.settings,
+        // Sync connection details stay on this device
+        settings: Object.fromEntries(
+          Object.entries(state.settings).filter(([k]) => !k.startsWith('sync') && k !== 'lastSyncedAt')
+        ),
         workspaces: state.workspaces,
         workspaceOrder: state.workspaceOrder
       };
@@ -201,6 +225,10 @@ export async function handleMessage(message, sender = {}) {
 
       const count = await workspaceManager.mutate((state) => {
         if (mode === 'replace') {
+          for (const id of Object.keys(state.workspaces)) {
+            if (!validated.workspaces[id]) state.tombstones[id] = Date.now();
+          }
+          for (const id of Object.keys(validated.workspaces)) delete state.tombstones[id];
           state.workspaces = validated.workspaces;
           state.workspaceOrder = validated.workspaceOrder;
           return validated.workspaceOrder.length;
@@ -218,7 +246,13 @@ export async function handleMessage(message, sender = {}) {
       });
 
       if (mode === 'replace') {
-        await storage.setLocal({ [STORAGE_KEYS.SETTINGS]: validated.settings });
+        // Keep this device's sync connection; take everything else from the file
+        const current = (await workspaceManager.loadState()).settings;
+        const merged = { ...validated.settings };
+        for (const key of SETTING_KEYS) {
+          if (key.startsWith('sync') || key === 'lastSyncedAt') merged[key] = current[key];
+        }
+        await storage.setLocal({ [STORAGE_KEYS.SETTINGS]: merged });
       }
       return { success: true, count, mode };
     }
