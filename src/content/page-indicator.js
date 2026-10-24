@@ -1,6 +1,6 @@
 /**
  * Page indicator — optional, opt-in features injected into web pages:
- *  - a small workspace pill (top-left) that opens the switcher as a flyout
+ *  - a small workspace pill / dot (top-left) that opens the switcher as a flyout
  *  - a thin accent border in the workspace color at the top of the page
  *
  * Registered dynamically by the service worker only when enabled in Settings.
@@ -51,10 +51,13 @@
           background: rgb(32,33,36); color: #fff; cursor: pointer;
           font: 600 12px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
           box-shadow: 0 2px 8px rgba(0,0,0,.3);
-          transition: max-width .2s ease, gap .2s ease, padding .2s ease;
+          transition: max-width .2s ease, gap .2s ease, padding .2s ease, border-color .2s;
         }
-        .pill:hover, .pill.open, .pill:focus-visible { max-width: 220px; gap: 6px; padding: 0 10px 0 8px; outline: none; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+        .pill:hover, .pill.open, .pill:focus-visible { max-width: 240px; gap: 6px; padding: 0 10px 0 8px; outline: none; }
+        .pill.unsaved { border: 1px dashed rgba(255,255,255,.45); }
+        .pill.unsaved:hover { border-color: rgba(255,255,255,.85); }
+        .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; box-sizing: border-box; transition: background .2s, border .2s; }
+        .dot.unsaved { background: transparent; border: 1.5px dashed #9aa0a6; }
         .name, .chev { opacity: 0; transition: opacity .15s ease; }
         .pill:hover .name, .pill:hover .chev, .pill.open .name, .pill.open .chev,
         .pill:focus-visible .name, .pill:focus-visible .chev { opacity: 1; }
@@ -86,11 +89,12 @@
 
   function render(data) {
     const ws = data?.workspace || null;
+    const isWorkspace = Boolean(ws);
     const key = JSON.stringify(data);
     if (key === lastKey && host?.isConnected) return;
     lastKey = key;
 
-    if (!data || (!data.showPill && !(data.showBorder && ws))) {
+    if (!data || (!data.showPill && !(data.showBorder && isWorkspace))) {
       closeFlyout();
       host?.remove();
       host = null;
@@ -98,16 +102,37 @@
     }
 
     ensureHost();
-    const color = COLORS[ws?.color] || '#9aa0a6';
+    const color = isWorkspace ? (COLORS[ws?.color] || '#9aa0a6') : '#9aa0a6';
     const border = shadow.querySelector('.border');
-    border.style.display = data.showBorder && ws ? 'block' : 'none';
+    border.style.display = data.showBorder && isWorkspace ? 'block' : 'none';
     border.style.background = color;
 
     const pill = shadow.querySelector('.pill');
     pill.style.display = data.showPill ? 'flex' : 'none';
-    shadow.querySelector('.dot').style.background = color;
-    shadow.querySelector('.name').textContent = ws ? `${ws.icon ? ws.icon + ' ' : ''}${ws.name}` : 'Tabroost';
-    pill.title = ws ? `Workspace: ${ws.name}` : 'This window is not a workspace';
+
+    const dot = shadow.querySelector('.dot');
+    if (isWorkspace) {
+      pill.classList.remove('unsaved');
+      dot.className = 'dot';
+      dot.style.background = color;
+      dot.style.border = 'none';
+      dot.style.boxShadow = `0 0 6px ${color}88`;
+    } else {
+      pill.classList.add('unsaved');
+      dot.className = 'dot unsaved';
+      dot.style.background = 'transparent';
+      dot.style.border = '1.5px dashed #9aa0a6';
+      dot.style.boxShadow = 'none';
+    }
+
+    const nameEl = shadow.querySelector('.name');
+    nameEl.textContent = isWorkspace
+      ? `${ws.icon ? ws.icon + ' ' : ''}${ws.name}`
+      : '+ Save as workspace';
+
+    pill.title = isWorkspace
+      ? `Workspace: ${ws.name} (Click to switch)`
+      : 'Unsaved Window (Click to save as workspace)';
   }
 
   function toggleFlyout() {
