@@ -111,6 +111,7 @@ class SidePanelApp {
       </header>
 
       <section class="window-bar" data-el="windowBar" aria-live="polite"></section>
+      <section class="restore-bar hidden" data-el="restoreBar" role="status"></section>
 
       <nav class="segmented" role="tablist" aria-label="View">
         <button type="button" role="tab" id="tab-workspaces" aria-controls="view-workspaces" aria-selected="true" data-view="workspaces">
@@ -160,6 +161,8 @@ class SidePanelApp {
       const act = actEl.dataset.act;
       if (act === 'new') this.newWorkspaceMenu(actEl);
       else if (act === 'dock') this.dockToSidePanel();
+      else if (act === 'restore-session') this.restoreSession();
+      else if (act === 'dismiss-restore') this.dismissRestore();
       else if (act === 'close') this.closeIfTransient();
       else if (act === 'settings') chrome.runtime.openOptionsPage();
       else if (act === 'sort') this.toggleSort();
@@ -274,6 +277,8 @@ class SidePanelApp {
       this.workspaces = state?.workspaces || {};
       this.workspaceOrder = state?.workspaceOrder || [];
       this.settings = state?.settings || {};
+      this.pendingRestore = state?.pendingRestore || [];
+      this.templates = state?.templates || [];
       this.bindings = status?.bindings || {};
       this.currentWorkspaceId = status?.currentWorkspaceId || null;
       this.previousWorkspaceId = status?.previousWorkspaceId || null;
@@ -319,6 +324,7 @@ class SidePanelApp {
 
   render() {
     this.renderWindowBar();
+    this.renderRestoreBar();
     this.renderFooter();
     const total = Object.keys(this.workspaces).length;
     this.el.countWorkspaces.textContent = String(total);
@@ -326,6 +332,47 @@ class SidePanelApp {
     this.el.sortBtn.querySelector('span').textContent = sortLabel;
     this.el.sortBtn.title = `Sorted: ${sortLabel.toLowerCase()} order. Click to change.`;
     this.renderList();
+  }
+
+  renderRestoreBar() {
+    const bar = this.el.restoreBar;
+    const ids = (this.pendingRestore || []).filter((id) => this.workspaces[id]);
+    if (ids.length === 0) {
+      bar.classList.add('hidden');
+      bar.replaceChildren();
+      return;
+    }
+    const names = ids.slice(0, 3).map((id) => this.workspaces[id].name).join(', ') + (ids.length > 3 ? ` +${ids.length - 3}` : '');
+    bar.classList.remove('hidden');
+    bar.innerHTML = `
+      <span class="rb-text">
+        <strong>Reopen ${escapeHtml(pluralize(ids.length, 'workspace'))}?</strong>
+        <span class="muted">${escapeHtml(names)} ${ids.length === 1 ? 'was' : 'were'} open last time.</span>
+      </span>
+      <button type="button" class="btn is-primary is-sm" data-act="restore-session">Reopen</button>
+      <button type="button" class="icon-btn is-sm" data-act="dismiss-restore" aria-label="Dismiss" title="Dismiss">${ICONS.close}</button>
+    `;
+  }
+
+  async restoreSession() {
+    try {
+      const res = await send(MESSAGE_TYPES.RESTORE_SESSION);
+      toast(res?.opened ? `Reopened ${pluralize(res.opened, 'workspace')}` : 'Nothing to reopen', { type: res?.opened ? 'success' : 'info' });
+    } catch (err) {
+      toastError(err, 'Could not reopen workspaces');
+    }
+    this.pendingRestore = [];
+    this.renderRestoreBar();
+  }
+
+  async dismissRestore() {
+    this.pendingRestore = [];
+    this.renderRestoreBar();
+    try {
+      await send(MESSAGE_TYPES.DISMISS_SESSION_RESTORE);
+    } catch (err) {
+      toastError(err);
+    }
   }
 
   renderWindowBar() {
@@ -501,12 +548,12 @@ class SidePanelApp {
     try {
       if (result.includeTabs && canIncludeTabs) {
         const ws = await send(MESSAGE_TYPES.CREATE_FROM_CURRENT_WINDOW, {
-          windowId: this.windowId, name: result.name, color: result.color, icon: result.icon
+          windowId: this.windowId, name: result.name, color: result.color, icon: result.icon, notes: result.notes
         });
         toast(`Saved this window as “${ws.name}”`, { type: 'success' });
         await this.load();
       } else {
-        const ws = await send(MESSAGE_TYPES.CREATE_WORKSPACE, { name: result.name, color: result.color, icon: result.icon });
+        const ws = await send(MESSAGE_TYPES.CREATE_WORKSPACE, { name: result.name, color: result.color, icon: result.icon, notes: result.notes });
         await send(MESSAGE_TYPES.OPEN_WORKSPACE, { id: ws.id });
         this.closeIfTransient();
       }
@@ -519,16 +566,68 @@ class SidePanelApp {
     const canSave = !this.currentWorkspaceId;
     showMenuForButton(button, [
       canSave ? { label: `Save this window (${pluralize(this.windowTabCount, 'tab')})`, icon: 'save', onSelect: () => this.createWorkspaceFlow({ fromWindow: true }) } : null,
-      { label: 'Blank workspace', icon: 'plus', shortcut: 'N', onSelect: () => this.createWorkspaceFlow({ fromWindow: false }) }
+      { label: 'Blank workspace', icon: 'plus', shortcut: 'N', onSelect: () => this.createWorkspaceFlow({ fromWindow: false }) },
+      ...(this.templates?.length
+        ? [
+            { separator: true },
+            { header: 'From a template' },
+            ...this.templates.map((t) => ({
+              label: `${t.icon ? t.icon + ' ' : ''}${t.name} (${pluralize(t.tabCount, 'tab')})`,
+              icon: 'duplicate',
+              onSelect: () => this.createFromTemplate(t)
+            })),
+            { label: 'Delete a template…', icon: 'trash', onSelect: () => this.deleteTemplateMenu(button) }
+          ]
+        : [])
     ], 'New workspace');
+  }
+
+  async createFromTemplate(template) {
+    try {
+      const ws = await send(MESSAGE_TYPES.CREATE_FROM_TEMPLATE, { id: template.id });
+      await send(MESSAGE_TYPES.OPEN_WORKSPACE, { id: ws.id });
+      this.closeIfTransient();
+    } catch (err) {
+      toastError(err, 'Could not create from template');
+    }
+  }
+
+  deleteTemplateMenu(button) {
+    showMenuForButton(button, [
+      { header: 'Delete which template?' },
+      ...this.templates.map((t) => ({
+        label: t.name,
+        icon: 'trash',
+        danger: true,
+        onSelect: async () => {
+          try {
+            await send(MESSAGE_TYPES.DELETE_TEMPLATE, { id: t.id });
+            toast(`Deleted template “${t.name}”`, { type: 'success' });
+            this.load();
+          } catch (err) {
+            toastError(err);
+          }
+        }
+      }))
+    ], 'Delete template');
+  }
+
+  async saveAsTemplate(ws) {
+    try {
+      await send(MESSAGE_TYPES.SAVE_TEMPLATE, { workspaceId: ws.id });
+      toast(`Saved “${ws.name}” as a template`, { type: 'success' });
+      this.load();
+    } catch (err) {
+      toastError(err, 'Could not save template');
+    }
   }
 
   async editWorkspace(ws) {
     if (!ws) return;
-    const result = await openWorkspaceDialog({ mode: 'edit', name: ws.name, color: ws.color, icon: ws.icon });
+    const result = await openWorkspaceDialog({ mode: 'edit', name: ws.name, color: ws.color, icon: ws.icon, notes: ws.notes });
     if (!result) return;
     try {
-      await send(MESSAGE_TYPES.UPDATE_WORKSPACE, { id: ws.id, name: result.name, color: result.color, icon: result.icon });
+      await send(MESSAGE_TYPES.UPDATE_WORKSPACE, { id: ws.id, name: result.name, color: result.color, icon: result.icon, notes: result.notes });
     } catch (err) {
       toastError(err, 'Could not save changes');
     }
@@ -593,6 +692,7 @@ class SidePanelApp {
         { label: 'Edit name, color, icon', icon: 'edit', shortcut: 'F2', onSelect: () => this.editWorkspace(ws) },
         { label: 'Duplicate', icon: 'duplicate', onSelect: run(MESSAGE_TYPES.DUPLICATE_WORKSPACE, { id: ws.id }, `Duplicated “${ws.name}”`) },
         { label: 'Version history…', icon: 'undo', onSelect: () => this.showHistory(ws) },
+        { label: 'Save as template', icon: 'bookmark', onSelect: () => this.saveAsTemplate(ws) },
         { label: 'Auto-group tabs', icon: 'sparkle', onSelect: async () => {
           try {
             const res = await send(MESSAGE_TYPES.ORGANIZE_TABS, { workspaceId: ws.id });

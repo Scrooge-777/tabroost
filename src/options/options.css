@@ -125,3 +125,5 @@ label.btn { cursor: pointer; }
 .page-foot { margin-top: 24px; text-align: center; font-size: 12px; }
 
 .toast-root { bottom: 24px; }
+
+.hidden { display: none !important; }

@@ -13,6 +13,7 @@ import {
   migrateStorageData,
   sanitizeName,
   sanitizeIcon,
+  sanitizeNotes,
   sanitizeWorkspace,
   newTabEntry
 } from '../shared/schema.js';
@@ -115,12 +116,12 @@ export const workspaceManager = {
   /**
    * Create a new workspace
    */
-  async createWorkspace({ name, color, icon, tabs = [], groups = [], window: windowInfo = null } = {}) {
+  async createWorkspace({ name, color, icon, notes, tabs = [], groups = [], window: windowInfo = null } = {}) {
     return this.mutate((state) => {
       const chosenColor = isValidColor(color)
         ? color
         : nextUnusedColor(Object.values(state.workspaces).map((w) => w.color), state.workspaceOrder.length);
-      const newWs = createWorkspaceModel({ name, color: chosenColor, icon, tabs, groups, window: windowInfo });
+      const newWs = createWorkspaceModel({ name, color: chosenColor, icon, notes, tabs, groups, window: windowInfo });
       state.workspaces[newWs.id] = newWs;
       state.workspaceOrder.push(newWs.id);
       return newWs;
@@ -130,12 +131,13 @@ export const workspaceManager = {
   /**
    * Create a workspace from an existing browser window and bind it
    */
-  async createFromCurrentWindow(windowId, name, color, icon = '') {
+  async createFromCurrentWindow(windowId, name, color, icon = '', notes = '') {
     const snap = await snapshotWindow(windowId);
     const ws = await this.createWorkspace({
       name: name || 'Window Workspace',
       color,
       icon,
+      notes,
       tabs: snap.tabs,
       groups: snap.groups,
       window: snap.window
@@ -149,13 +151,14 @@ export const workspaceManager = {
   /**
    * Update name / color / icon in one go
    */
-  async updateWorkspace(id, { name, color, icon } = {}) {
+  async updateWorkspace(id, { name, color, icon, notes } = {}) {
     return this.mutate((state) => {
       const ws = state.workspaces[id];
       if (!ws) throw new Error(`Workspace ${id} not found`);
       if (name !== undefined) ws.name = sanitizeName(name);
       if (color !== undefined && isValidColor(color)) ws.color = color;
       if (icon !== undefined) ws.icon = sanitizeIcon(icon);
+      if (notes !== undefined) ws.notes = sanitizeNotes(notes);
       ws.updatedAt = Date.now();
       return ws;
     });
@@ -237,6 +240,7 @@ export const workspaceManager = {
         name: `${source.name} (Copy)`,
         color: source.color,
         icon: source.icon,
+        notes: source.notes,
         tabs: newTabs,
         groups: newGroups,
         window: source.window

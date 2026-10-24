@@ -111,6 +111,12 @@
           <button type="button" class="btn is-primary" id="btn-sync-now">Sync now</button>
           <span class="muted" id="sync-status">Checking sync status...</span>
         </div>
+        <div id="sync-conflicts" class="hidden" role="status">
+          <p class="row-title">Sync kept the newer version of these workspaces</p>
+          <p class="row-desc">Both devices changed them since the last sync. The version that lost is saved in the workspace's history: open its menu, then Version history.</p>
+          <ul class="backup-list" id="sync-conflict-list"></ul>
+          <button type="button" class="btn is-sm" id="btn-clear-conflicts">Dismiss</button>
+        </div>
       </section>
 
       <section class="card" aria-labelledby="h-pages">

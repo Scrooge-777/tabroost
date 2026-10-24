@@ -528,7 +528,7 @@ await test('router rejects unknown message types', async () => {
 
 await test('storage stays small: nothing but known keys in local', async () => {
   const keys = Object.keys(dumpLocal()).sort();
-  for (const k of keys) assert.ok(['backups', 'history', 'schemaVersion', 'settings', 'tombstones', 'workspaceOrder', 'workspaces'].includes(k), `unexpected key ${k}`);
+  for (const k of keys) assert.ok(['backups', 'history', 'lastSession', 'schemaVersion', 'templates', 'settings', 'tombstones', 'workspaceOrder', 'workspaces'].includes(k), `unexpected key ${k}`);
 });
 
 await test('delete leaves a tombstone, undo clears it', async () => {

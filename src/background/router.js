@@ -15,6 +15,8 @@ import { windowRegistry } from './window-registry.js';
 import { windowOpener } from './window-opener.js';
 import { backups } from './backups.js';
 import { history } from './history.js';
+import { sessionRestore } from './session-restore.js';
+import { templates } from './templates.js';
 import { pageFeatures } from './page-features.js';
 import { syncEngine } from './sync-engine.js';
 import { storage } from '../shared/storage.js';
@@ -58,20 +60,34 @@ export async function handleMessage(message, sender = {}) {
   switch (message.type) {
     case MESSAGE_TYPES.LIST_WORKSPACES: {
       await windowRegistry.cleanupStaleBindings();
-      return workspaceManager.getState();
+      return {
+        ...(await workspaceManager.getState()),
+        pendingRestore: await sessionRestore.getPending(),
+        templates: await templates.list()
+      };
     }
 
     case MESSAGE_TYPES.CREATE_WORKSPACE:
       return workspaceManager.createWorkspace({
         name: message.name,
         color: message.color,
-        icon: message.icon
+        icon: message.icon,
+        notes: message.notes
       });
+
+    case MESSAGE_TYPES.SAVE_TEMPLATE:
+      return templates.saveFromWorkspace(message.workspaceId, message.name);
+
+    case MESSAGE_TYPES.DELETE_TEMPLATE:
+      return { deleted: await templates.remove(message.id) };
+
+    case MESSAGE_TYPES.CREATE_FROM_TEMPLATE:
+      return templates.instantiate(message.id, message.name);
 
     case MESSAGE_TYPES.CREATE_FROM_CURRENT_WINDOW: {
       const windowId = message.windowId || sender.tab?.windowId;
       if (!windowId) throw new Error('Target window ID not specified');
-      return workspaceManager.createFromCurrentWindow(windowId, message.name, message.color, message.icon);
+      return workspaceManager.createFromCurrentWindow(windowId, message.name, message.color, message.icon, message.notes);
     }
 
     case MESSAGE_TYPES.OPEN_WORKSPACE: {
@@ -88,7 +104,8 @@ export async function handleMessage(message, sender = {}) {
       return workspaceManager.updateWorkspace(message.id, {
         name: message.name,
         color: message.color,
-        icon: message.icon
+        icon: message.icon,
+        notes: message.notes
       });
 
     case MESSAGE_TYPES.RENAME_WORKSPACE:
@@ -116,6 +133,13 @@ export async function handleMessage(message, sender = {}) {
       if (!winId) throw new Error('Target window ID not specified');
       return workspaceManager.adoptWindow(winId, message.workspaceId);
     }
+
+    case MESSAGE_TYPES.RESTORE_SESSION:
+      return sessionRestore.restoreAll();
+
+    case MESSAGE_TYPES.DISMISS_SESSION_RESTORE:
+      await sessionRestore.dismiss();
+      return { dismissed: true };
 
     case MESSAGE_TYPES.LIST_HISTORY:
       return { versions: await history.list(message.workspaceId) };
@@ -207,6 +231,10 @@ export async function handleMessage(message, sender = {}) {
 
     case MESSAGE_TYPES.GET_SYNC_STATUS:
       return syncEngine.getStatus();
+
+    case MESSAGE_TYPES.CLEAR_SYNC_CONFLICTS:
+      await syncEngine.clearConflicts();
+      return { cleared: true };
 
     case MESSAGE_TYPES.UPDATE_SYNC_CONFIG: {
       const secrets = message.secrets || {};

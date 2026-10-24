@@ -7,6 +7,7 @@ import { DEFAULT_COLOR, isValidColor } from './colors.js';
 import { generateId, NEW_TAB_URL } from './utils.js';
 
 const MAX_NAME_LENGTH = 60;
+const MAX_NOTES_LENGTH = 500;
 const MAX_INLINE_FAVICON = 2048;
 
 export function newTabEntry(index = 0) {
@@ -25,6 +26,10 @@ export function newTabEntry(index = 0) {
 export function sanitizeName(name, fallback = 'Workspace') {
   const trimmed = String(name ?? '').trim().slice(0, MAX_NAME_LENGTH);
   return trimmed || fallback;
+}
+
+export function sanitizeNotes(notes) {
+  return String(notes ?? '').replace(/\r\n/g, '\n').trim().slice(0, MAX_NOTES_LENGTH);
 }
 
 /**
@@ -54,6 +59,7 @@ export function createWorkspaceModel({
   name = 'New Workspace',
   color = DEFAULT_COLOR,
   icon = '',
+  notes = '',
   tabs = [],
   groups = [],
   window: windowInfo = null
@@ -70,6 +76,7 @@ export function createWorkspaceModel({
     name: sanitizeName(name),
     color: isValidColor(color) ? color : DEFAULT_COLOR,
     icon: sanitizeIcon(icon),
+    notes: sanitizeNotes(notes),
     createdAt: now,
     updatedAt: now,
     lastOpenedAt: now,
@@ -135,6 +142,7 @@ export function sanitizeWorkspace(ws, id) {
     name: sanitizeName(ws.name),
     color: isValidColor(ws.color) ? ws.color : DEFAULT_COLOR,
     icon: sanitizeIcon(ws.icon),
+    notes: sanitizeNotes(ws.notes),
     createdAt: ws.createdAt || now,
     updatedAt: ws.updatedAt || now,
     lastOpenedAt: ws.lastOpenedAt || ws.updatedAt || now,

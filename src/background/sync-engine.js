@@ -18,6 +18,7 @@ import { deepEqual } from '../shared/utils.js';
 import { storage } from '../shared/storage.js';
 import { sanitizeSyncPayload } from '../shared/schema.js';
 import { getSyncSecrets } from '../shared/secrets.js';
+import { history } from './history.js';
 
 const GIST_FILENAME = 'tabroost-workspaces.enc';
 const REQUEST_TIMEOUT_MS = 20000;
@@ -212,7 +213,35 @@ export function mergeWorkspaces(localWorkspaces = {}, remoteWorkspaces = {}) {
  * Merge full sync state (workspaces, order, deletion tombstones).
  * A tombstone wins over a workspace unless the workspace was edited after the deletion.
  */
-export function mergeState(local = {}, remote = {}, now = Date.now()) {
+function contentSignature(ws) {
+  return JSON.stringify([
+    ws.name, ws.color, ws.icon, ws.notes || '',
+    (ws.tabs || []).map((t) => [t.url, Boolean(t.pinned), t.groupId || null]),
+    (ws.groups || []).map((g) => [g.id, g.title, g.color])
+  ]);
+}
+
+/**
+ * Workspaces both sides changed since the last sync, with different content. Last write
+ * wins for the stored result; the losing copy is reported so it can be kept in history.
+ */
+export function findConflicts(localWorkspaces = {}, remoteWorkspaces = {}, since = 0) {
+  const conflicts = [];
+  for (const id of Object.keys(localWorkspaces)) {
+    const l = localWorkspaces[id];
+    const r = remoteWorkspaces[id];
+    if (!r || l.deletedAt || r.deletedAt) continue;
+    const lt = l.updatedAt || l.createdAt || 0;
+    const rt = r.updatedAt || r.createdAt || 0;
+    if (lt <= since || rt <= since) continue;
+    if (contentSignature(l) === contentSignature(r)) continue;
+    const keepLocal = lt >= rt;
+    conflicts.push({ id, name: keepLocal ? l.name : r.name, kept: keepLocal ? 'local' : 'remote', loser: keepLocal ? r : l });
+  }
+  return conflicts;
+}
+
+export function mergeState(local = {}, remote = {}, now = Date.now(), since = null) {
   const tombstones = {};
   for (const source of [local.tombstones, remote.tombstones]) {
     for (const [id, at] of Object.entries(source || {})) {
@@ -242,7 +271,10 @@ export function mergeState(local = {}, remote = {}, now = Date.now()) {
     if (!seen.has(id)) workspaceOrder.push(id);
   }
 
-  return { workspaces, workspaceOrder, tombstones };
+  const conflicts = since === null
+    ? []
+    : findConflicts(local.workspaces, remote.workspaces, since).filter((c) => workspaces[c.id]);
+  return { workspaces, workspaceOrder, tombstones, conflicts };
 }
 
 export class SyncEngine {
@@ -267,8 +299,32 @@ export class SyncEngine {
       lastSyncedAt: settings.lastSyncedAt || null,
       inProgress: Boolean(lock),
       retryAt: backoff.until > Date.now() ? backoff.until : null,
-      lastError: this.lastError
+      lastError: this.lastError,
+      conflicts: await this.readConflicts()
     };
+  }
+
+  async readConflicts() {
+    const items = await storage.getLocal(STORAGE_KEYS.SYNC_CONFLICTS);
+    const value = items[STORAGE_KEYS.SYNC_CONFLICTS];
+    return Array.isArray(value) ? value : [];
+  }
+
+  async clearConflicts() {
+    await storage.removeLocal(STORAGE_KEYS.SYNC_CONFLICTS);
+  }
+
+  /** Keep the losing copy of each conflict in the workspace's history and remember it for the UI */
+  async recordConflicts(conflicts = []) {
+    if (!conflicts.length) return;
+    const log = await this.readConflicts();
+    for (const c of conflicts) {
+      const versionId = await history.addExternal(c.id, c.loser, 'sync-conflict');
+      if (!log.some((e) => e.versionId === versionId)) {
+        log.unshift({ id: c.id, name: c.name, kept: c.kept, at: Date.now(), versionId });
+      }
+    }
+    await storage.setLocal({ [STORAGE_KEYS.SYNC_CONFLICTS]: log.slice(0, 20) });
   }
 
   // The lock lives in session storage so it survives the MV3 worker being suspended
@@ -338,7 +394,7 @@ export class SyncEngine {
         // Merge inside the storage lock so edits made during the request are not lost
         let merged = null;
         await workspaceManager.mutate((current) => {
-          merged = mergeState(current, remoteData);
+          merged = mergeState(current, remoteData, Date.now(), settings.lastSyncedAt || 0);
           const changed =
             !deepEqual(current.workspaces, merged.workspaces) ||
             !deepEqual(current.workspaceOrder, merged.workspaceOrder) ||
@@ -355,6 +411,8 @@ export class SyncEngine {
           const latest = await adapter.fetchUpdatedAt();
           if (latest !== updatedAt) continue;
         }
+
+        await this.recordConflicts(merged.conflicts);
 
         const payload = {
           schemaVersion: SYNC_PAYLOAD_VERSION,

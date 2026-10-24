@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+- Reopen last session: if the browser restarts and some workspaces that were open do not come back, the panel offers to reopen them (Reopen / Dismiss).
+- Workspace notes: an optional note per workspace, shown under its name and edited in the workspace dialog. Notes sync with the workspace.
+- Templates: save a workspace as a template (workspace menu) and create new workspaces from it (New workspace menu). Up to 20 templates; kept on this device.
+- Sync conflict report: when two devices changed the same workspace, sync still keeps the newer version, now saves the other one in that workspace's history ("Replaced by sync"), and lists it under Settings > Cloud Sync.
+
+### Changed
+- Internal: workspace-manager split into core, snapshot and tab-operations modules. No behavior change.
+
 ## 1.2.0
 
 ### Fixed

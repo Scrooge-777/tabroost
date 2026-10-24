@@ -36,6 +36,7 @@ Close the window when you're done. Reopen the workspace next week and every tab,
 | ⚡ **Fast switching** | Toolbar popup, side panel, `Alt+Shift+W`, the "Back to …" chip, or a *previous workspace* shortcut. |
 | 🔎 **Search** | Across workspace names, tab titles and URLs. |
 | ♻️ **Never lose anything** | Undo delete, 10 automatic backups, and JSON export/import (merge or replace). |
+| 🕘 **History, notes, templates** | Every workspace keeps restorable versions and an optional note. Save one as a template to start new workspaces from it. After a restart the panel offers to reopen what was open. |
 | 🔁 **Survives restarts** | Restored windows are matched back to their workspaces by URL overlap. |
 | 🎨 **Polished UI** | Light and dark themes, keyboard navigation, screen-reader labels. |
 | 🏷️ **Optional page indicator** | A small pill and accent border on web pages. Off by default, and site access is asked for only when you turn it on. |
