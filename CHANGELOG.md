@@ -21,6 +21,9 @@
 - The side panel page uses a dynamic URL so websites cannot guess it.
 
 ### Added
+- Version history per workspace: automatic versions (at most every 10 minutes while it changes, and when its window closes), manual versions, and a version taken before every restore. Open it from the workspace menu: see what changed (+added / −removed tabs) and restore. The newest 20 are kept. Not synced or exported.
+- Edge handle: drag it up or down to move it, optional open-on-hover, and a list of sites where it stays hidden.
+- Popup: close button, Ctrl+K to search, and it remembers the last tab you used.
 - Edge handle with a slide-out panel (new default style), like an edge panel on a phone: a thin strip on the screen edge instead of a floating dot, so it does not cover site menus. Click it to open your workspaces in a popup card beside the handle. The floating dot is still available under Settings > Style.
 - Optional passphrase-encrypted export and import files.
 - Request timeouts, GitHub rate-limit handling and exponential backoff for background sync.

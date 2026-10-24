@@ -161,6 +161,9 @@ export function sanitizeSettings(raw = {}) {
     settings.pillPosition = 'top-left';
   }
   if (!['handle', 'dot'].includes(settings.pillStyle)) settings.pillStyle = 'handle';
+  if (settings.pillOffsetY !== null && !(Number.isFinite(settings.pillOffsetY))) settings.pillOffsetY = null;
+  if (settings.pillOffsetY !== null) settings.pillOffsetY = Math.min(100, Math.max(0, settings.pillOffsetY));
+  settings.pillHiddenSites = settings.pillHiddenSites.slice(0, 2000);
   if (!['compact', 'medium', 'large', 'xlarge'].includes(settings.pillSize)) {
     settings.pillSize = 'medium';
   }

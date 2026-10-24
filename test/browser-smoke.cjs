@@ -122,6 +122,27 @@ const pages = {
     await panel.waitForSelector('.menu', { state: 'detached' });
   });
 
+  await step('version history dialog', async () => {
+    await panel.hover('.ws-card:nth-child(2) .ws-row');
+    await panel.click('.ws-card:nth-child(2) [data-act="menu"]');
+    await panel.waitForSelector('.menu');
+    await panel.click('.menu-item:has-text("Version history")');
+    await panel.waitForSelector('dialog[open] .history-list, dialog[open] .muted');
+    await panel.click('dialog[open] [data-save]');
+    await panel.waitForSelector('dialog[open] .history-row', { timeout: 5000 });
+    await panel.screenshot({ path: path.join(OUT, '06b-history.png') });
+    await panel.click('dialog[open] button[type="submit"]');
+    await panel.waitForSelector('dialog[open]', { state: 'detached' });
+  });
+
+  await step('ctrl+k focuses search', async () => {
+    await panel.click('body', { position: { x: 5, y: 5 } });
+    await panel.keyboard.press('Control+k');
+    const focused = await panel.evaluate(() => document.activeElement?.dataset?.el);
+    if (focused !== 'search') throw new Error(`focus is on ${focused}`);
+    await panel.keyboard.press('Escape');
+  });
+
   await step('search filters tabs', async () => {
     await panel.fill('[data-el="search"]', 'lecture');
     await panel.waitForTimeout(150);

@@ -166,6 +166,30 @@
 
         <label class="row">
           <span class="row-text">
+            <span class="row-title">Open when hovering the handle</span>
+            <span class="row-desc">Opens the popup after a short pause instead of waiting for a click.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="pillOpenOnHover">
+        </label>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Handle height</span>
+            <span class="row-desc">Drag the handle up or down on any page to move it. Reset puts it back to the position chosen above.</span>
+          </span>
+          <button type="button" class="btn is-sm" id="btn-reset-handle">Reset position</button>
+        </div>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Hide on these sites</span>
+            <span class="row-desc">One site per line, for example <code>mybank.com</code>. Subdomains are included.</span>
+          </span>
+          <textarea class="input" style="width: 260px; height: 72px;" data-setting="pillHiddenSites" spellcheck="false" placeholder="mybank.com&#10;game.example"></textarea>
+        </div>
+
+        <label class="row">
+          <span class="row-text">
             <span class="row-title">Accent border</span>
             <span class="row-desc">A thin stripe in the workspace color across the top of every page (visible when window is a saved workspace).</span>
           </span>

@@ -138,6 +138,43 @@ async function pixelAt(page, x, y) {
     await page.bringToFront();
     await page.waitForTimeout(800);
 
+    // Hide on listed sites
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillHiddenSites: 'https://www.127.0.0.1/path\nother.example' } }));
+    await page.bringToFront();
+    await page.waitForTimeout(1200);
+    check('indicator hidden on a listed site', !(await hasHost()));
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillHiddenSites: '' } }));
+    await page.bringToFront();
+    await page.waitForTimeout(1200);
+    check('indicator back once the site is unlisted', await hasHost());
+
+    // Drag the handle down; the position is saved
+    await page.mouse.move(2, 40);
+    await page.mouse.down();
+    await page.mouse.move(2, 150, { steps: 4 });
+    await page.mouse.move(2, 300, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(800);
+    const offset = await ui.evaluate(async () => (await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' })).data.pillOffsetY);
+    check('dragging the handle saves its height', typeof offset === 'number' && offset > 35 && offset < 60, String(offset));
+    check('drag did not open the popup', !page.frames().some((f) => f.url().includes('mode=flyout')));
+    const movedHit = await page.evaluate(() => document.elementFromPoint(2, 300) === document.getElementById('tabroost-ext-indicator'));
+    check('handle sits at the new height', movedHit);
+
+    // Open on hover
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillOpenOnHover: true } }));
+    await page.bringToFront();
+    await page.waitForTimeout(800);
+    await page.mouse.move(600, 500);
+    await page.mouse.move(2, 300, { steps: 3 });
+    await page.waitForTimeout(1500);
+    check('hovering the handle opens the popup', page.frames().some((f) => f.url().includes('mode=flyout')));
+    await page.mouse.click(700, 600);
+    await page.waitForTimeout(400);
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillOpenOnHover: false, pillOffsetY: null } }));
+    await page.bringToFront();
+    await page.waitForTimeout(800);
+
     // Rename -> pill text follows
     await ui.evaluate(async () => {
       const r = await chrome.runtime.sendMessage({ type: 'LIST_WORKSPACES' });

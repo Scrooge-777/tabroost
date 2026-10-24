@@ -782,3 +782,10 @@ body.is-dragging-tab .ungroup-zone { display: flex; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Version history dialog */
+.history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; }
+.history-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border, rgba(127,127,127,.25)); border-radius: 10px; }
+.history-main { display: flex; flex-direction: column; min-width: 0; }
+.history-time { font-weight: 600; }
+.history-meta { color: var(--text-2); font-size: 12px; }

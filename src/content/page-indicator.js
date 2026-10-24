@@ -28,6 +28,10 @@
   let currentPosition = 'top-left';
   let currentSize = 'medium';
   let currentStyle = 'handle';
+  let currentOffsetY = null;
+  let hoverTimer = null;
+  let justDragged = false;
+  let hoverOpen = false;
 
   const alive = () => {
     try {
@@ -127,6 +131,8 @@
         .handle.side-right { right: 0; border-radius: 6px 0 0 6px; }
         .handle.v-top { top: 14px; }
         .handle.v-bottom { bottom: 14px; }
+        .handle.v-free { margin-top: calc(var(--h) / -2); }
+        .handle { touch-action: none; }
         .handle.v-center { top: 50%; margin-top: calc(var(--h) / -2); }
         .handle.size-compact { --h: 36px; width: 4px; height: var(--h); }
         .handle.size-medium { --h: 56px; width: 5px; height: var(--h); }
@@ -173,10 +179,55 @@
       el.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (justDragged) {
+          justDragged = false;
+          return;
+        }
         toggleFlyout();
       });
     }
+
+    // Handle: drag up and down to reposition, optionally open when hovered
+    const handleEl = shadow.querySelector('.handle');
+    let drag = null;
+    handleEl.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      drag = { startY: e.clientY, moved: false };
+      handleEl.setPointerCapture(e.pointerId);
+    });
+    handleEl.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      if (!drag.moved && Math.abs(e.clientY - drag.startY) < 5) return;
+      drag.moved = true;
+      clearTimeout(hoverTimer);
+      const pct = Math.min(95, Math.max(5, (e.clientY / window.innerHeight) * 100));
+      handleEl.classList.remove('v-top', 'v-center', 'v-bottom');
+      handleEl.classList.add('v-free');
+      handleEl.style.top = `${pct}%`;
+      drag.pct = pct;
+    });
+    const endDrag = () => {
+      if (drag?.moved && alive()) {
+        justDragged = true;
+        setTimeout(() => { justDragged = false; }, 300);
+        chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillOffsetY: Math.round(drag.pct) } }).catch(() => {});
+      }
+      drag = null;
+    };
+    handleEl.addEventListener('pointerup', endDrag);
+    handleEl.addEventListener('pointercancel', endDrag);
+    handleEl.addEventListener('mouseenter', () => {
+      if (!hoverOpen || flyout || drag) return;
+      hoverTimer = setTimeout(() => { if (!flyout && !drag) openFlyout(); }, 250);
+    });
+    handleEl.addEventListener('mouseleave', () => clearTimeout(hoverTimer));
     (document.body || document.documentElement).appendChild(host);
+  }
+
+  /** True when this site is on the user's "never show here" list */
+  function siteHidden(data) {
+    const host = location.hostname.toLowerCase().replace(/^www\./, '');
+    return (data?.hiddenSites || []).some((s) => host === s || host.endsWith('.' + s));
   }
 
   function render(data) {
@@ -190,12 +241,13 @@
     const style = data?.pillStyle === 'dot' ? 'dot' : 'handle';
     if (style !== currentStyle) closeFlyout();
     currentStyle = style;
+    hoverOpen = Boolean(data?.openOnHover);
 
     const key = JSON.stringify({ data, pos, size });
     if (key === lastKey && host?.isConnected) return;
     lastKey = key;
 
-    if (!data?.showPill && !data?.showBorder) {
+    if (siteHidden(data) || (!data?.showPill && !data?.showBorder)) {
       closeFlyout();
       host?.remove();
       host = null;
@@ -219,6 +271,14 @@
     const vertical = pos.startsWith('bottom') ? 'bottom' : pos.startsWith('center') ? 'center' : 'top';
     handle.style.display = data?.showPill && style === 'handle' ? 'block' : 'none';
     handle.className = `handle side-${side} v-${vertical} size-${size}${isWorkspace ? '' : ' unsaved'}${flyout ? ' open' : ''}`;
+    currentOffsetY = typeof data?.offsetY === 'number' ? data.offsetY : null;
+    if (currentOffsetY !== null) {
+      handle.classList.remove('v-top', 'v-center', 'v-bottom');
+      handle.classList.add('v-free');
+      handle.style.top = `${currentOffsetY}%`;
+    } else {
+      handle.style.top = '';
+    }
     handle.style.setProperty('--c', color);
     handle.title = isWorkspace
       ? `Workspace: ${ws.name} (click to open the panel)`
@@ -259,8 +319,14 @@
     if (!alive() || !shadow) return;
     flyout = document.createElement('iframe');
     const edgeSide = currentPosition.endsWith('right') ? 'right' : 'left';
-    const edgeV = currentPosition.startsWith('bottom') ? 'bottom' : currentPosition.startsWith('center') ? 'center' : 'top';
+    const edgeV = currentOffsetY !== null ? 'free' : currentPosition.startsWith('bottom') ? 'bottom' : currentPosition.startsWith('center') ? 'center' : 'top';
     flyout.className = currentStyle === 'handle' ? `edge side-${edgeSide} v-${edgeV}` : `pos-${currentPosition}`;
+    if (currentStyle === 'handle' && currentOffsetY !== null) {
+      // Line the popup up with the dragged handle, kept fully on screen
+      const height = Math.min(560, window.innerHeight - 72);
+      const top = Math.max(14, Math.min(window.innerHeight - height - 14, (currentOffsetY / 100) * window.innerHeight - 28));
+      flyout.style.top = `${top}px`;
+    }
     flyout.src = chrome.runtime.getURL('src/sidepanel/panel.html?mode=flyout');
     flyout.title = 'Tabroost';
     shadow.appendChild(flyout);

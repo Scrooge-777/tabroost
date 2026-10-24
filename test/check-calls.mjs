@@ -15,6 +15,7 @@ const targets = {
   backups: (await import('../src/background/backups.js')).backups,
   pageFeatures: (await import('../src/background/page-features.js')).pageFeatures,
   syncEngine: (await import('../src/background/sync-engine.js')).syncEngine,
+  history: (await import('../src/background/history.js')).history,
   tabSync: (await import('../src/background/tab-sync.js')).tabSync,
   storage: (await import('../src/shared/storage.js')).storage
 };

@@ -10,6 +10,14 @@ import { windowRegistry } from './window-registry.js';
 
 export const PAGE_ORIGINS = ['http://*/*', 'https://*/*'];
 
+/** "a.com, b.org" or one per line -> ['a.com', 'b.org'] (lowercase, no scheme or path) */
+export function parseHiddenSites(raw = '') {
+  return String(raw)
+    .split(/[\s,;]+/)
+    .map((s) => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0])
+    .filter(Boolean);
+}
+
 export const pageFeatures = {
   async hasSiteAccess() {
     if (!chrome.permissions?.contains) return false;
@@ -64,6 +72,9 @@ export const pageFeatures = {
       pillPosition: state.settings?.pillPosition || 'top-left',
       pillSize: state.settings?.pillSize || 'medium',
       pillStyle: state.settings?.pillStyle === 'dot' ? 'dot' : 'handle',
+      openOnHover: Boolean(state.settings?.pillOpenOnHover),
+      offsetY: state.settings?.pillOffsetY ?? null,
+      hiddenSites: parseHiddenSites(state.settings?.pillHiddenSites),
       showBorder: Boolean(state.settings?.accentBorder),
       workspace: ws ? { id: ws.id, name: ws.name, color: ws.color, icon: ws.icon } : null
     };

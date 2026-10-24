@@ -10,6 +10,7 @@ import { windowRegistry } from './window-registry.js';
 import { workspaceManager, snapshotWindow, SKIP_SAVE } from './workspace-manager.js';
 import { MESSAGE_TYPES } from '../shared/constants.js';
 import { deepEqual } from '../shared/utils.js';
+import { history } from './history.js';
 
 const DEFAULT_DELAY_MS = 400;
 
@@ -171,6 +172,7 @@ class TabSync {
 
     if (changed) {
       this.broadcast(MESSAGE_TYPES.WORKSPACE_UPDATED, { workspaceId });
+      history.record(workspaceId, 'auto').catch((err) => console.warn('tabSync: history record failed', err));
     }
     return Boolean(changed);
   }

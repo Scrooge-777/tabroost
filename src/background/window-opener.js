@@ -6,6 +6,7 @@ import { windowRegistry } from './window-registry.js';
 import { workspaceManager } from './workspace-manager.js';
 import { groupSync } from './group-sync.js';
 import { tabSync } from './tab-sync.js';
+import { history } from './history.js';
 import { sanitizeRestoreUrl, NEW_TAB_URL } from '../shared/utils.js';
 
 async function createWindowFor(ws, firstUrl) {
@@ -190,6 +191,7 @@ export const windowOpener = {
 
     try {
       await tabSync.flush(workspaceId);
+      await history.record(workspaceId, 'closed', { force: true });
     } catch {
       // Best effort
     }

@@ -118,6 +118,7 @@ class OptionsApp {
       });
     }
 
+    document.getElementById('btn-reset-handle')?.addEventListener('click', () => this.save({ pillOffsetY: null }));
     document.getElementById('btn-export').addEventListener('click', () => this.exportJson());
     document.getElementById('file-import').addEventListener('change', (e) => this.importJson(e));
     document.getElementById('btn-reset').addEventListener('click', () => this.resetAll());

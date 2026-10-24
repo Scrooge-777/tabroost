@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
   SETTINGS: 'settings',
   BACKUPS: 'backups',
   TOMBSTONES: 'tombstones',
+  HISTORY: 'history',
   SYNC_SECRETS: 'syncSecrets',
 
   // Session storage keys
@@ -31,7 +32,10 @@ export const DEFAULT_SETTINGS = {
   showPagePill: false,
   pillPosition: 'top-left', // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center-left' | 'center-right'
   pillStyle: 'handle', // 'handle' (edge strip + slide-out panel) | 'dot'
-  pillSize: 'medium', // 'compact' | 'medium' | 'large' | 'xlarge'
+  pillSize: 'medium',
+  pillOpenOnHover: false,
+  pillOffsetY: null, // 0-100 (% of window height) once the handle has been dragged
+  pillHiddenSites: '', // hostnames (one per line or comma separated) where the indicator stays hidden // 'compact' | 'medium' | 'large' | 'xlarge'
   accentBorder: false,
   autoBackup: true,
   lazyRestoreTabs: true,
@@ -75,6 +79,9 @@ export const MESSAGE_TYPES = {
   DUPLICATE_WORKSPACE: 'DUPLICATE_WORKSPACE',
   REORDER_WORKSPACES: 'REORDER_WORKSPACES',
   ADOPT_WINDOW: 'ADOPT_WINDOW',
+  LIST_HISTORY: 'LIST_HISTORY',
+  CREATE_VERSION: 'CREATE_VERSION',
+  RESTORE_VERSION: 'RESTORE_VERSION',
   SWITCH_TO_LAST: 'SWITCH_TO_LAST',
   MOVE_TAB_TO_WORKSPACE: 'MOVE_TAB_TO_WORKSPACE',
   CLOSE_TAB_IN_WORKSPACE: 'CLOSE_TAB_IN_WORKSPACE',

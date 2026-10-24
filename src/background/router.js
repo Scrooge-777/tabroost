@@ -14,6 +14,7 @@ import { workspaceManager } from './workspace-manager.js';
 import { windowRegistry } from './window-registry.js';
 import { windowOpener } from './window-opener.js';
 import { backups } from './backups.js';
+import { history } from './history.js';
 import { pageFeatures } from './page-features.js';
 import { syncEngine } from './sync-engine.js';
 import { storage } from '../shared/storage.js';
@@ -114,6 +115,23 @@ export async function handleMessage(message, sender = {}) {
       const winId = message.windowId || sender.tab?.windowId;
       if (!winId) throw new Error('Target window ID not specified');
       return workspaceManager.adoptWindow(winId, message.workspaceId);
+    }
+
+    case MESSAGE_TYPES.LIST_HISTORY:
+      return { versions: await history.list(message.workspaceId) };
+
+    case MESSAGE_TYPES.CREATE_VERSION: {
+      const id = await history.record(message.workspaceId, 'manual', { force: true });
+      return { created: Boolean(id) };
+    }
+
+    case MESSAGE_TYPES.RESTORE_VERSION: {
+      const wasOpen = (await windowRegistry.getWindowForWorkspace(message.workspaceId)) !== null;
+      // The open window would overwrite the restored tabs on its next save, so close it first
+      if (wasOpen) await windowOpener.closeWorkspace(message.workspaceId);
+      const result = await history.restore(message.workspaceId, message.versionId);
+      if (wasOpen) await windowOpener.openWorkspace(message.workspaceId);
+      return { ...result, reopened: wasOpen };
     }
 
     case MESSAGE_TYPES.SWITCH_TO_LAST: {
