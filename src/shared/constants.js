@@ -24,7 +24,9 @@ export const DEFAULT_SETTINGS = {
   closeWindowOnWorkspaceSwitch: false,
   confirmDelete: true,
   sortOrder: 'manual', // 'manual' | 'recent'
-  showPagePill: false,
+  showPagePill: true,
+  pillPosition: 'top-left', // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center-left' | 'center-right'
+  pillSize: 'medium', // 'compact' | 'medium' | 'large' | 'xlarge'
   accentBorder: false,
   autoBackup: true,
   lazyRestoreTabs: true,

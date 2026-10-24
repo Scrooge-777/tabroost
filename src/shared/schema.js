@@ -157,6 +157,13 @@ export function sanitizeSettings(raw = {}) {
     }
   }
   if (!['manual', 'recent'].includes(settings.sortOrder)) settings.sortOrder = 'manual';
+  if (!['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center-left', 'center-right'].includes(settings.pillPosition)) {
+    settings.pillPosition = 'top-left';
+  }
+  if (!['compact', 'medium', 'large', 'xlarge'].includes(settings.pillSize)) {
+    settings.pillSize = 'medium';
+  }
+  settings.showPagePill = true;
   return settings;
 }
 

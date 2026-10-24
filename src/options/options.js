@@ -58,7 +58,7 @@ class OptionsApp {
       if (input.type === 'checkbox') {
         input.checked = Boolean(this.settings[key]) && (!input.hasAttribute('data-needs-sites') || hasSites);
       } else {
-        input.value = this.settings[key] || '';
+        input.value = this.settings[key] || (key === 'pillPosition' ? 'top-left' : key === 'pillSize' ? 'medium' : '');
       }
     }
   }

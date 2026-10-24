@@ -498,6 +498,18 @@ await test('service worker loads; menus and badge follow the focused workspace',
   assert.match(chrome.action.badge.title, /Restored/);
 });
 
+await test('page indicator defaults to permanent with configurable position and size', async () => {
+  const ind = await send('GET_PAGE_INDICATOR');
+  assert.equal(ind.showPill, true);
+  assert.equal(ind.pillPosition, 'top-left');
+  assert.equal(ind.pillSize, 'medium');
+
+  await send('UPDATE_SETTINGS', { settings: { pillPosition: 'bottom-right', pillSize: 'large' } });
+  const updated = await send('GET_PAGE_INDICATOR');
+  assert.equal(updated.pillPosition, 'bottom-right');
+  assert.equal(updated.pillSize, 'large');
+});
+
 await test('router rejects unknown message types', async () => {
   await assert.rejects(() => send('NOPE'));
 });

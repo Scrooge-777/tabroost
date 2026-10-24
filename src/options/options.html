@@ -50,9 +50,9 @@
             </tr>
             <tr>
               <td><strong>On-Page Floating Dot</strong></td>
-              <td>Top-left dot on web pages for unsaved and active workspaces</td>
-              <td><span class="tag is-opt">UI</span></td>
-              <td><span class="tag is-done">Completed (v1.1)</span></td>
+              <td>Permanent visual anchor for unsaved and active workspaces</td>
+              <td><span class="tag is-perm">Core UI</span></td>
+              <td><span class="tag is-done">Permanent (v1.1)</span></td>
             </tr>
             <tr>
               <td><strong>Accent Color Border</strong></td>
@@ -172,23 +172,51 @@
       </section>
 
       <section class="card" aria-labelledby="h-pages">
-        <h2 id="h-pages">On web pages</h2>
-        <p class="card-desc">Optional. These need permission to run on websites, which is only requested when you turn one on.</p>
+        <h2 id="h-pages">On-page workspace indicator</h2>
+        <p class="card-desc">Permanent visual anchor across web pages to identify workspaces, switch contexts, or save new windows.</p>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Workspace floating dot</span>
+            <span class="row-desc">Permanent on all web pages. Solid colored circle for active workspaces; dashed ring for unsaved windows.</span>
+          </span>
+          <span class="tag is-done" style="font-weight: 600; padding: 4px 10px;">Permanent</span>
+        </div>
 
         <label class="row">
           <span class="row-text">
-            <span class="row-title">Workspace button on pages</span>
-            <span class="row-desc">A small pill in the top-left corner showing the current workspace (or dashed circle on unsaved windows). Click it to switch or save.</span>
+            <span class="row-title">Dot screen position</span>
+            <span class="row-desc">Choose which corner or edge of the browser window the dot anchors to.</span>
           </span>
-          <input type="checkbox" class="switch" data-setting="showPagePill" data-needs-sites>
+          <select class="select" data-setting="pillPosition">
+            <option value="top-left">Top Left (Default)</option>
+            <option value="top-right">Top Right</option>
+            <option value="bottom-left">Bottom Left</option>
+            <option value="bottom-right">Bottom Right</option>
+            <option value="center-left">Center Left</option>
+            <option value="center-right">Center Right</option>
+          </select>
+        </label>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Dot &amp; pill size</span>
+            <span class="row-desc">Adjust the diameter of the circular indicator and expanded pill label.</span>
+          </span>
+          <select class="select" data-setting="pillSize">
+            <option value="medium">Medium (14px dot · 34px pill — Recommended)</option>
+            <option value="large">Large (18px dot · 42px pill)</option>
+            <option value="xlarge">Extra Large (22px dot · 50px pill)</option>
+            <option value="compact">Compact (10px dot · 26px pill)</option>
+          </select>
         </label>
 
         <label class="row">
           <span class="row-text">
             <span class="row-title">Accent border</span>
-            <span class="row-desc">A thin line in the workspace color across the top of every page (visible when window is a saved workspace).</span>
+            <span class="row-desc">A thin stripe in the workspace color across the top of every page (visible when window is a saved workspace).</span>
           </span>
-          <input type="checkbox" class="switch" data-setting="accentBorder" data-needs-sites>
+          <input type="checkbox" class="switch" data-setting="accentBorder">
         </label>
       </section>
 
