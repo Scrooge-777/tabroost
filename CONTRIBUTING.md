@@ -9,6 +9,7 @@ npm test
 ```
 
 - Load the folder as an unpacked extension to try changes in a browser.
+- The real-browser tests (`npm run test:browser`, `npm run test:page`) run locally, not in CI: set `PLAYWRIGHT=<path to playwright-core>` and `BROWSER=<path to Brave or Chrome>`. Run them before releasing UI changes. A CI job was tried, but Chromium on the GitHub runner crashes when the extension opens a second window.
 - Add or update tests in `test/` for behavior changes. Sync, crypto and storage code needs tests.
 - `npm test` includes a call-contract check: every call such as `workspaceManager.someMethod()` must resolve to a real method.
 - Keep `package.json` and `manifest.json` versions equal (checked by the tests).
