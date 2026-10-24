@@ -149,32 +149,8 @@ export async function handleMessage(message, sender = {}) {
       return { workspaceId: wsId, isManaged: Boolean(wsId) };
     }
 
-    case MESSAGE_TYPES.GET_PAGE_INDICATOR: {
-      const tabId = sender.tab?.id;
-      const windowId = sender.tab?.windowId;
-      if (!tabId || !windowId) return { visible: false };
-
-      const state = await workspaceManager.loadState();
-      const settings = state.settings || {};
-      if (!settings.showPagePill && !settings.accentBorder) {
-        return { visible: false };
-      }
-
-      const wsId = await windowRegistry.getWorkspaceForWindow(windowId);
-      if (!wsId) return { visible: false };
-
-      const ws = state.workspaces[wsId];
-      if (!ws) return { visible: false };
-
-      return {
-        visible: true,
-        showPill: Boolean(settings.showPagePill),
-        showBorder: Boolean(settings.accentBorder),
-        name: ws.name,
-        color: ws.color,
-        icon: ws.icon
-      };
-    }
+    case MESSAGE_TYPES.GET_PAGE_INDICATOR:
+      return pageFeatures.getIndicator(sender.tab?.windowId);
 
     case MESSAGE_TYPES.GET_SETTINGS: {
       const state = await workspaceManager.loadState();
