@@ -74,6 +74,7 @@ export const pageFeatures = {
       pillStyle: state.settings?.pillStyle === 'dot' ? 'dot' : 'handle',
       openOnHover: Boolean(state.settings?.pillOpenOnHover),
       offsetY: state.settings?.pillOffsetY ?? null,
+      offsetX: state.settings?.pillOffsetX ?? null,
       hiddenSites: parseHiddenSites(state.settings?.pillHiddenSites),
       showBorder: Boolean(state.settings?.accentBorder),
       workspace: ws ? { id: ws.id, name: ws.name, color: ws.color, icon: ws.icon } : null

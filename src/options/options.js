@@ -109,8 +109,8 @@ class OptionsApp {
         }
 
         if (key === 'pillPosition') {
-          // Reset drag offset so the chosen preset position applies cleanly
-          await this.save({ [key]: value, pillOffsetY: null });
+          // Reset drag offsets so the chosen preset position applies cleanly
+          await this.save({ [key]: value, pillOffsetY: null, pillOffsetX: null });
         } else {
           await this.save({ [key]: value });
         }

@@ -166,8 +166,14 @@ export function sanitizeSettings(raw = {}) {
   }
   if (!['manual', 'recent'].includes(settings.sortOrder)) settings.sortOrder = 'manual';
   const ALLOWED_PILL_POSITIONS = [
+    // Left edge
     'top-left', 'upper-left', 'mid-upper-left', 'center-left', 'mid-lower-left', 'lower-left', 'bottom-left',
-    'top-right', 'upper-right', 'mid-upper-right', 'center-right', 'mid-lower-right', 'lower-right', 'bottom-right'
+    // Right edge
+    'top-right', 'upper-right', 'mid-upper-right', 'center-right', 'mid-lower-right', 'lower-right', 'bottom-right',
+    // Top edge (Upper screen)
+    'top-edge-left', 'top-edge-mid-left', 'top-edge-center', 'top-edge-mid-right', 'top-edge-right',
+    // Bottom edge (Lower screen)
+    'bottom-edge-left', 'bottom-edge-mid-left', 'bottom-edge-center', 'bottom-edge-mid-right', 'bottom-edge-right'
   ];
   if (!ALLOWED_PILL_POSITIONS.includes(settings.pillPosition)) {
     settings.pillPosition = 'top-left';
@@ -175,6 +181,8 @@ export function sanitizeSettings(raw = {}) {
   if (!['handle', 'dot'].includes(settings.pillStyle)) settings.pillStyle = 'handle';
   if (settings.pillOffsetY !== null && !(Number.isFinite(settings.pillOffsetY))) settings.pillOffsetY = null;
   if (settings.pillOffsetY !== null) settings.pillOffsetY = Math.min(100, Math.max(0, settings.pillOffsetY));
+  if (settings.pillOffsetX !== null && !(Number.isFinite(settings.pillOffsetX))) settings.pillOffsetX = null;
+  if (settings.pillOffsetX !== null) settings.pillOffsetX = Math.min(100, Math.max(0, settings.pillOffsetX));
   settings.pillHiddenSites = settings.pillHiddenSites.slice(0, 2000);
   if (!['compact', 'medium', 'large', 'xlarge'].includes(settings.pillSize)) {
     settings.pillSize = 'medium';

@@ -34,11 +34,12 @@ export const DEFAULT_SETTINGS = {
   confirmDelete: true,
   sortOrder: 'manual', // 'manual' | 'recent'
   showPagePill: false,
-  pillPosition: 'top-left', // 'top-left' | 'upper-left' | 'mid-upper-left' | 'center-left' | 'mid-lower-left' | 'lower-left' | 'bottom-left' | 'top-right' | 'upper-right' | 'mid-upper-right' | 'center-right' | 'mid-lower-right' | 'lower-right' | 'bottom-right'
+  pillPosition: 'top-left', // 'top-left' | 'upper-left' | 'mid-upper-left' | 'center-left' | 'mid-lower-left' | 'lower-left' | 'bottom-left' | 'top-right' | 'upper-right' | 'mid-upper-right' | 'center-right' | 'mid-lower-right' | 'lower-right' | 'bottom-right' | 'top-edge-left' | 'top-edge-mid-left' | 'top-edge-center' | 'top-edge-mid-right' | 'top-edge-right' | 'bottom-edge-left' | 'bottom-edge-mid-left' | 'bottom-edge-center' | 'bottom-edge-mid-right' | 'bottom-edge-right'
   pillStyle: 'handle', // 'handle' (edge strip + slide-out panel) | 'dot'
   pillSize: 'medium',
   pillOpenOnHover: false,
   pillOffsetY: null, // 0-100 (% of window height) once the handle has been dragged
+  pillOffsetX: null, // 0-100 (% of window width) once a top/bottom handle has been dragged
   pillHiddenSites: '', // hostnames (one per line or comma separated) where the indicator stays hidden // 'compact' | 'medium' | 'large' | 'xlarge'
   accentBorder: false,
   autoBackup: true,
