@@ -33,7 +33,7 @@ const pages = {
     executablePath: BRAVE,
     headless: false,
     viewport: { width: 1200, height: 800 },
-    args: ['--headless=new', `--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-first-run', ...(process.env.CI ? ['--no-sandbox'] : [])]
+    args: [...(process.env.CI ? [] : ['--headless=new']), `--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-first-run', ...(process.env.CI ? ['--no-sandbox'] : [])]
   });
 
   const errors = [];
