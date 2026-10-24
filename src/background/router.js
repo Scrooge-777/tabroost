@@ -8,6 +8,7 @@ import { windowRegistry } from './window-registry.js';
 import { windowOpener } from './window-opener.js';
 import { backups } from './backups.js';
 import { pageFeatures } from './page-features.js';
+import { syncEngine } from './sync-engine.js';
 import { storage } from '../shared/storage.js';
 import { validateImportPayload, sanitizeWorkspace } from '../shared/schema.js';
 import { generateId } from '../shared/utils.js';
@@ -102,90 +103,78 @@ export async function handleMessage(message, sender = {}) {
       return workspaceManager.reorderWorkspaces(message.order);
 
     case MESSAGE_TYPES.ADOPT_WINDOW: {
-      const windowId = message.windowId || sender.tab?.windowId;
-      if (!windowId) throw new Error('Target window ID not specified');
-      return workspaceManager.adoptWindow(windowId, message.workspaceId);
+      const winId = message.windowId || sender.tab?.windowId;
+      if (!winId) throw new Error('Target window ID not specified');
+      return workspaceManager.adoptWindow(winId, message.workspaceId);
     }
 
     case MESSAGE_TYPES.SWITCH_TO_LAST: {
-      const previous = await windowRegistry.getPreviousWorkspaceId();
-      const state = await workspaceManager.loadState();
-      if (!previous || !state.workspaces[previous]) return { switched: false };
-      await windowOpener.openWorkspace(previous);
-      return { switched: true, workspaceId: previous };
+      const prevId = await windowRegistry.getPreviousWorkspaceId();
+      if (!prevId) return { switched: false, reason: 'no-previous-workspace' };
+      const winId = await windowOpener.openWorkspace(prevId);
+      return { switched: true, workspaceId: prevId, windowId: winId };
     }
 
     case MESSAGE_TYPES.MOVE_TAB_TO_WORKSPACE:
-      return workspaceManager.moveTabToWorkspace(message.tabId, message.targetWorkspaceId, message.sourceWorkspaceId || null);
+      return workspaceManager.moveTabToWorkspace(message.tabId, message.targetWorkspaceId, message.sourceWorkspaceId);
 
     case MESSAGE_TYPES.CLOSE_TAB_IN_WORKSPACE:
       return workspaceManager.closeTabInWorkspace(message.workspaceId, message.tabId);
 
-    case MESSAGE_TYPES.OPEN_TAB_IN_WORKSPACE: {
-      const winId = await windowOpener.openTabInWorkspace(message.workspaceId, message.tabId, message.url);
-      return { windowId: winId };
-    }
+    case MESSAGE_TYPES.OPEN_TAB_IN_WORKSPACE:
+      return windowOpener.openTabInWorkspace(message.workspaceId, message.tabId, message.url);
 
     case MESSAGE_TYPES.MERGE_TABS_INTO_GROUP:
-      return workspaceManager.mergeTabsIntoGroup({
-        sourceWorkspaceId: message.sourceWorkspaceId,
-        sourceTabId: message.sourceTabId,
-        targetWorkspaceId: message.targetWorkspaceId,
-        targetTabId: message.targetTabId
-      });
+      return workspaceManager.mergeTabsIntoGroup(message);
 
-    case MESSAGE_TYPES.ADD_TAB_TO_GROUP: {
-      if (message.sourceWorkspaceId && message.sourceWorkspaceId !== message.workspaceId) {
-        const moved = await workspaceManager.moveTabToWorkspace(message.tabId, message.workspaceId, message.sourceWorkspaceId);
-        return workspaceManager.addTabToGroup({ workspaceId: message.workspaceId, tabId: moved.tabId, groupId: message.groupId });
-      }
-      return workspaceManager.addTabToGroup({
-        workspaceId: message.workspaceId,
-        tabId: message.tabId,
-        groupId: message.groupId
-      });
-    }
+    case MESSAGE_TYPES.ADD_TAB_TO_GROUP:
+      return workspaceManager.addTabToGroup(message);
 
     case MESSAGE_TYPES.REMOVE_TAB_FROM_GROUP:
-      return workspaceManager.removeTabFromGroup({
-        workspaceId: message.workspaceId,
-        tabId: message.tabId
-      });
+      return workspaceManager.removeTabFromGroup(message);
 
     case MESSAGE_TYPES.UNGROUP_TABS:
-      return workspaceManager.ungroupTabs({
-        workspaceId: message.workspaceId,
-        groupId: message.groupId
-      });
+      return workspaceManager.ungroupTabs(message);
 
     case MESSAGE_TYPES.UPDATE_TAB_GROUP:
-      return workspaceManager.updateTabGroup({
-        workspaceId: message.workspaceId,
-        groupId: message.groupId,
-        title: message.title,
-        color: message.color,
-        collapsed: message.collapsed
-      });
+      return workspaceManager.updateTabGroup(message);
 
-    case MESSAGE_TYPES.ORGANIZE_TABS: {
-      const windowId = message.windowId || null;
-      return workspaceManager.organizeTabs({ workspaceId: message.workspaceId, windowId });
-    }
+    case MESSAGE_TYPES.ORGANIZE_TABS:
+      return workspaceManager.organizeTabs(message);
 
     case MESSAGE_TYPES.GET_CURRENT_STATUS: {
-      const senderWindowId = message.windowId || sender.tab?.windowId || null;
-      const bindings = await windowRegistry.getAllBindings();
-      return {
-        windowId: senderWindowId,
-        currentWorkspaceId: senderWindowId ? bindings[String(senderWindowId)] || null : null,
-        activeWorkspaceId: await windowRegistry.getActiveWorkspaceId(),
-        previousWorkspaceId: await windowRegistry.getPreviousWorkspaceId(),
-        bindings
-      };
+      const windowId = message.windowId || sender.tab?.windowId;
+      if (!windowId) return { workspaceId: null, isManaged: false };
+      const wsId = await windowRegistry.getWorkspaceForWindow(windowId);
+      return { workspaceId: wsId, isManaged: Boolean(wsId) };
     }
 
-    case MESSAGE_TYPES.GET_PAGE_INDICATOR:
-      return pageFeatures.getIndicator(sender.tab?.windowId || message.windowId);
+    case MESSAGE_TYPES.GET_PAGE_INDICATOR: {
+      const tabId = sender.tab?.id;
+      const windowId = sender.tab?.windowId;
+      if (!tabId || !windowId) return { visible: false };
+
+      const state = await workspaceManager.loadState();
+      const settings = state.settings || {};
+      if (!settings.showPagePill && !settings.accentBorder) {
+        return { visible: false };
+      }
+
+      const wsId = await windowRegistry.getWorkspaceForWindow(windowId);
+      if (!wsId) return { visible: false };
+
+      const ws = state.workspaces[wsId];
+      if (!ws) return { visible: false };
+
+      return {
+        visible: true,
+        showPill: Boolean(settings.showPagePill),
+        showBorder: Boolean(settings.accentBorder),
+        name: ws.name,
+        color: ws.color,
+        icon: ws.icon
+      };
+    }
 
     case MESSAGE_TYPES.GET_SETTINGS: {
       const state = await workspaceManager.loadState();
@@ -195,11 +184,27 @@ export async function handleMessage(message, sender = {}) {
     case MESSAGE_TYPES.UPDATE_SETTINGS: {
       const updated = await workspaceManager.updateSettings(message.settings || {});
       await pageFeatures.sync().catch((err) => console.warn('router: page feature sync failed', err));
+      await syncEngine.ensureAlarm().catch(() => {});
       return updated;
     }
 
     case MESSAGE_TYPES.SYNC_PAGE_FEATURES:
       return pageFeatures.sync();
+
+    // Cloud Sync Handlers
+    case MESSAGE_TYPES.START_SYNC:
+      return syncEngine.syncNow();
+
+    case MESSAGE_TYPES.GET_SYNC_STATUS:
+      return syncEngine.getStatus();
+
+    case MESSAGE_TYPES.UPDATE_SYNC_CONFIG: {
+      if (message.settings) {
+        await workspaceManager.saveSettings(message.settings);
+        await syncEngine.ensureAlarm().catch(() => {});
+      }
+      return syncEngine.getStatus();
+    }
 
     case MESSAGE_TYPES.EXPORT: {
       const state = await workspaceManager.loadState();

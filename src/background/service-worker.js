@@ -12,6 +12,7 @@ import { updateToolbarBadge } from './badge.js';
 import { updateContextMenus, registerContextMenuHandlers } from './context-menus.js';
 import { backups } from './backups.js';
 import { pageFeatures } from './page-features.js';
+import { syncEngine } from './sync-engine.js';
 import { MESSAGE_TYPES, STORAGE_KEYS } from '../shared/constants.js';
 import { debounce } from '../shared/utils.js';
 
@@ -26,17 +27,20 @@ registerMessageRouter();
 tabSync.init();
 registerContextMenuHandlers();
 backups.registerAlarmHandler();
+syncEngine.registerAlarmHandler();
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('Tabroost installed or updated:', details.reason);
   await updateContextMenus({ force: true });
   await backups.ensureAlarm().catch(() => {});
+  await syncEngine.ensureAlarm().catch(() => {});
   await pageFeatures.sync().catch(() => {});
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await windowRegistry.cleanupStaleBindings();
   await backups.ensureAlarm().catch(() => {});
+  await syncEngine.ensureAlarm().catch(() => {});
   await startupRecovery.runRecovery();
   await updateToolbarBadge();
 });

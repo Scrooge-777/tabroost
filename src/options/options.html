@@ -37,6 +37,14 @@
 
         <label class="row">
           <span class="row-text">
+            <span class="row-title">Lazy tab loading (save memory)</span>
+            <span class="row-desc">Restores tabs in sleeping state until clicked, saving RAM and CPU when reopening workspaces with many tabs.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="lazyRestoreTabs">
+        </label>
+
+        <label class="row">
+          <span class="row-text">
             <span class="row-title">Ask before deleting a workspace</span>
             <span class="row-desc">Deleting can always be undone from the notification right after.</span>
           </span>
@@ -53,6 +61,48 @@
             <option value="recent">Recently used</option>
           </select>
         </label>
+      </section>
+
+      <section class="card" aria-labelledby="h-sync">
+        <h2 id="h-sync">Cloud Sync (End-to-End Encrypted)</h2>
+        <p class="card-desc">Sync your workspaces securely between your devices using client-side zero-knowledge AES-256-GCM encryption.</p>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Enable cloud sync</span>
+            <span class="row-desc">Automatically synchronizes encrypted workspaces every 30 minutes and on-demand.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="syncEnabled">
+        </label>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Master encryption passphrase</span>
+            <span class="row-desc">All workspace data is encrypted with this passphrase before leaving your browser.</span>
+          </span>
+          <input type="password" class="input" style="width: 260px;" data-setting="syncPassphrase" placeholder="Passphrase...">
+        </div>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">GitHub Personal Access Token (PAT)</span>
+            <span class="row-desc">Needs <code>gist</code> scope to store encrypted data in a private secret Gist.</span>
+          </span>
+          <input type="password" class="input" style="width: 260px;" data-setting="syncGistToken" placeholder="ghp_...">
+        </div>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Remote Gist ID (optional)</span>
+            <span class="row-desc">Leave blank on your first device to create a new Gist automatically; paste the ID on your other devices.</span>
+          </span>
+          <input type="text" class="input" style="width: 260px;" data-setting="syncGistId" placeholder="Auto-generated...">
+        </div>
+
+        <div class="actions" style="margin-top: 14px; margin-bottom: 6px; display: flex; align-items: center; gap: 14px;">
+          <button type="button" class="btn is-primary" id="btn-sync-now">Sync now</button>
+          <span class="muted" id="sync-status">Checking sync status...</span>
+        </div>
       </section>
 
       <section class="card" aria-labelledby="h-pages">

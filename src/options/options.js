@@ -40,6 +40,7 @@ class OptionsApp {
     this.bindEvents();
     this.renderShortcuts();
     this.renderBackups();
+    await this.renderSyncStatus();
   }
 
   async loadSettings() {
@@ -57,7 +58,7 @@ class OptionsApp {
       if (input.type === 'checkbox') {
         input.checked = Boolean(this.settings[key]) && (!input.hasAttribute('data-needs-sites') || hasSites);
       } else {
-        input.value = this.settings[key];
+        input.value = this.settings[key] || '';
       }
     }
   }
@@ -66,6 +67,7 @@ class OptionsApp {
     try {
       this.settings = await sendBackgroundMessage(MESSAGE_TYPES.UPDATE_SETTINGS, { settings: partial });
       toast('Saved', { type: 'success', duration: 1500 });
+      await this.renderSyncStatus();
     } catch (err) {
       toastError(err, 'Could not save settings');
     }
@@ -109,9 +111,53 @@ class OptionsApp {
         toastError(err, 'Backup failed');
       }
     });
+
     document.getElementById('btn-shortcuts').addEventListener('click', () => {
       chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
     });
+
+    document.getElementById('btn-sync-now')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btn-sync-now');
+      const statusEl = document.getElementById('sync-status');
+      try {
+        btn.disabled = true;
+        btn.textContent = 'Syncing…';
+        statusEl.textContent = 'Connecting and syncing…';
+        const res = await sendBackgroundMessage(MESSAGE_TYPES.START_SYNC);
+        toast(`Synced ${pluralize(res.workspaceCount, 'workspace')}`, { type: 'success' });
+        await this.loadSettings();
+        await this.renderSyncStatus();
+      } catch (err) {
+        toastError(err, 'Sync failed');
+        statusEl.textContent = `Error: ${err.message || err}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sync now';
+      }
+    });
+
+    chrome.runtime.onMessage?.addListener((msg) => {
+      if (msg?.type === MESSAGE_TYPES.STATE_CHANGED && msg.lastSyncedAt) {
+        this.renderSyncStatus();
+      }
+    });
+  }
+
+  async renderSyncStatus() {
+    const statusEl = document.getElementById('sync-status');
+    if (!statusEl) return;
+    try {
+      const status = await sendBackgroundMessage(MESSAGE_TYPES.GET_SYNC_STATUS);
+      if (!status.enabled) {
+        statusEl.textContent = 'Sync is currently off';
+      } else if (status.lastSyncedAt) {
+        statusEl.textContent = `Last synced ${timeAgo(status.lastSyncedAt)}`;
+      } else {
+        statusEl.textContent = 'Ready to sync';
+      }
+    } catch {
+      statusEl.textContent = 'Sync service offline';
+    }
   }
 
   async renderShortcuts() {
@@ -129,44 +175,57 @@ class OptionsApp {
 
   async renderBackups() {
     const list = document.getElementById('backup-list');
-    let backups = [];
+    let items = [];
     try {
-      backups = await sendBackgroundMessage(MESSAGE_TYPES.LIST_BACKUPS) || [];
-    } catch (err) {
-      list.innerHTML = `<li class="muted">Could not load backups: ${escapeHtml(err.message)}</li>`;
+      items = (await sendBackgroundMessage(MESSAGE_TYPES.LIST_BACKUPS)) || [];
+    } catch {
+      list.innerHTML = '<li class="muted">Could not load backups</li>';
       return;
     }
-    if (!backups.length) {
-      list.innerHTML = '<li class="muted">No backups yet.</li>';
+
+    if (!items.length) {
+      list.innerHTML = '<li class="muted">No backups yet. Tabroost creates one automatically every few hours.</li>';
       return;
     }
-    list.innerHTML = backups.map((b) => `
-      <li>
-        <span class="backup-meta">
-          <span class="backup-when" title="${escapeHtml(new Date(b.createdAt).toLocaleString())}">${escapeHtml(timeAgo(b.createdAt))} · ${escapeHtml(REASONS[b.reason] || b.reason)}</span>
-          <span class="backup-what">${pluralize(b.workspaceCount, 'workspace')}, ${pluralize(b.tabCount, 'tab')}</span>
-        </span>
-        <button type="button" class="btn is-sm" data-restore="${escapeHtml(b.id)}">Restore</button>
-      </li>
-    `).join('');
+
+    list.innerHTML = items
+      .map((b) => {
+        const time = new Date(b.createdAt).toLocaleString(undefined, {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+        const reason = REASONS[b.reason] || b.reason;
+        const count = pluralize(b.workspaceCount, 'workspace');
+        return `
+          <li class="backup-row" data-id="${b.id}">
+            <span class="backup-meta">
+              <span class="backup-time">${escapeHtml(time)}</span>
+              <span class="backup-reason">${escapeHtml(reason)} · ${count}</span>
+            </span>
+            <button type="button" class="btn is-sm" data-restore="${b.id}">Restore</button>
+          </li>`;
+      })
+      .join('');
 
     list.querySelectorAll('[data-restore]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const { confirmed } = await confirmDialog({
-          title: 'Restore this backup?',
-          message: 'Your current workspaces will be replaced. A backup of them is taken first.',
-          confirmLabel: 'Restore'
-        });
-        if (!confirmed) return;
-        try {
-          const res = await sendBackgroundMessage(MESSAGE_TYPES.RESTORE_BACKUP, { id: btn.dataset.restore });
-          toast(`Restored ${pluralize(res.count, 'workspace')}`, { type: 'success' });
-          this.renderBackups();
-        } catch (err) {
-          toastError(err, 'Restore failed');
-        }
-      });
+      btn.addEventListener('click', () => this.restoreBackup(btn.dataset.restore));
     });
+  }
+
+  async restoreBackup(id) {
+    const { confirmed } = await confirmDialog({
+      title: 'Restore this backup?',
+      message: 'Your current workspaces will be replaced with this snapshot. A backup of the current state will be taken first.',
+      confirmLabel: 'Restore'
+    });
+    if (!confirmed) return;
+
+    try {
+      await sendBackgroundMessage(MESSAGE_TYPES.RESTORE_BACKUP, { id });
+      toast('Backup restored', { type: 'success' });
+      this.renderBackups();
+    } catch (err) {
+      toastError(err, 'Could not restore backup');
+    }
   }
 
   async exportJson() {
@@ -174,14 +233,16 @@ class OptionsApp {
       const data = await sendBackgroundMessage(MESSAGE_TYPES.EXPORT);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `tabroost-workspaces-${date}.json`;
+
       const a = document.createElement('a');
       a.href = url;
-      a.download = `workspaces-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      toast(`Exported ${pluralize(Object.keys(data.workspaces || {}).length, 'workspace')}`, { type: 'success' });
     } catch (err) {
       toastError(err, 'Export failed');
     }
@@ -189,12 +250,14 @@ class OptionsApp {
 
   async importJson(e) {
     const input = e.target;
-    const file = input.files?.[0];
+    const file = input.files && input.files[0];
     if (!file) return;
-    const mode = document.querySelector('input[name="import-mode"]:checked')?.value || 'merge';
 
     try {
-      const payload = JSON.parse(await file.text());
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const mode = document.querySelector('input[name="import-mode"]:checked')?.value || 'merge';
+
       if (mode === 'replace') {
         const { confirmed } = await confirmDialog({
           title: 'Replace all workspaces?',

@@ -1,10 +1,12 @@
 {
   "name": "tabroost",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "type": "module",
   "private": true,
   "description": "Tabroost: Edge-style workspaces for Brave and Chrome (Manifest V3)",
   "scripts": {
-    "test": "node test/check-imports.mjs && node test/flows.test.mjs",
+    "test": "node test/check-imports.mjs && node test/flows.test.mjs && node test/crypto.test.mjs && node test/sync.test.mjs",
+    "pack": "node scripts/package.mjs",
     "test:browser": "node test/browser-smoke.cjs",
     "test:page": "node test/page-indicator-smoke.cjs"
   },

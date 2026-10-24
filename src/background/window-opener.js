@@ -91,15 +91,21 @@ export const windowOpener = {
 
       const createdTabs = [];
       const firstLive = (win.tabs && win.tabs[0]) || (await chrome.tabs.query({ windowId: win.id }))[0];
+      const isFirstActive = (tabs[0] === wantedActive);
+
       if (firstLive) {
         if (tabs[0].pinned) {
           await chrome.tabs.update(firstLive.id, { pinned: true }).catch(() => {});
         }
-        createdTabs.push({ id: firstLive.id, savedTabId: tabs[0].id, savedGroupId: tabs[0].groupId, active: tabs[0] === wantedActive });
+        createdTabs.push({ id: firstLive.id, savedTabId: tabs[0].id, savedGroupId: tabs[0].groupId, active: isFirstActive });
+        if (state.settings?.lazyRestoreTabs !== false && !isFirstActive && !tabs[0].pinned && chrome.tabs?.discard) {
+          chrome.tabs.discard(firstLive.id).catch(() => {});
+        }
       }
 
       for (let i = 1; i < tabs.length; i++) {
         const t = tabs[i];
+        const isTargetActive = (t === wantedActive);
         const created = await createTabSafely({
           windowId: win.id,
           url: sanitizeRestoreUrl(t.url),
@@ -108,7 +114,11 @@ export const windowOpener = {
           active: false
         });
         if (created) {
-          createdTabs.push({ id: created.id, savedTabId: t.id, savedGroupId: t.groupId, active: t === wantedActive });
+          createdTabs.push({ id: created.id, savedTabId: t.id, savedGroupId: t.groupId, active: isTargetActive });
+          // Lazy tab restoration: discard non-active background tabs to keep RAM low
+          if (state.settings?.lazyRestoreTabs !== false && !isTargetActive && !t.pinned && chrome.tabs?.discard) {
+            chrome.tabs.discard(created.id).catch(() => {});
+          }
         }
       }
 

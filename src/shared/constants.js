@@ -26,7 +26,15 @@ export const DEFAULT_SETTINGS = {
   sortOrder: 'manual', // 'manual' | 'recent'
   showPagePill: false,
   accentBorder: false,
-  autoBackup: true
+  autoBackup: true,
+  lazyRestoreTabs: true,
+  syncEnabled: false,
+  syncProvider: 'gist', // 'gist' | 'custom'
+  syncGistToken: '',
+  syncGistId: '',
+  syncPassphrase: '',
+  syncIntervalMinutes: 30,
+  lastSyncedAt: null
 };
 
 export const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
@@ -34,6 +42,7 @@ export const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
 export const MAX_BACKUPS = 10;
 export const BACKUP_ALARM = 'workspaces-auto-backup';
 export const BACKUP_INTERVAL_MINUTES = 60 * 6;
+export const SYNC_ALARM = 'workspaces-cloud-sync';
 
 export const PAGE_SCRIPT_ID = 'workspaces-page-indicator';
 
@@ -74,6 +83,11 @@ export const MESSAGE_TYPES = {
   RESTORE_BACKUP: 'RESTORE_BACKUP',
   RESET_ALL: 'RESET_ALL',
   OPEN_SIDE_PANEL: 'OPEN_SIDE_PANEL',
+
+  // Cloud Sync Messages
+  START_SYNC: 'START_SYNC',
+  GET_SYNC_STATUS: 'GET_SYNC_STATUS',
+  UPDATE_SYNC_CONFIG: 'UPDATE_SYNC_CONFIG',
 
   // Background Worker -> UI broadcast
   WORKSPACE_UPDATED: 'WORKSPACE_UPDATED',

@@ -75,7 +75,8 @@ export function createWorkspaceModel({
     lastOpenedAt: now,
     tabs: sanitizedTabs,
     groups: sanitizedGroups,
-    window: sanitizeWindowInfo(windowInfo)
+    window: sanitizeWindowInfo(windowInfo),
+    deletedAt: null
   };
 }
 
@@ -139,15 +140,20 @@ export function sanitizeWorkspace(ws, id) {
     lastOpenedAt: ws.lastOpenedAt || ws.updatedAt || now,
     tabs: tabs.length > 0 ? tabs : [newTabEntry(0)],
     groups: groups.filter((g) => usedGroupIds.has(g.id)),
-    window: sanitizeWindowInfo(ws.window)
+    window: sanitizeWindowInfo(ws.window),
+    deletedAt: typeof ws.deletedAt === 'number' ? ws.deletedAt : null
   };
 }
 
 export function sanitizeSettings(raw = {}) {
   const settings = { ...DEFAULT_SETTINGS };
   for (const key of SETTING_KEYS) {
-    if (raw && raw[key] !== undefined && typeof raw[key] === typeof DEFAULT_SETTINGS[key]) {
-      settings[key] = raw[key];
+    if (raw && raw[key] !== undefined) {
+      if (DEFAULT_SETTINGS[key] === null) {
+        settings[key] = (raw[key] === null || typeof raw[key] === 'number') ? raw[key] : null;
+      } else if (typeof raw[key] === typeof DEFAULT_SETTINGS[key]) {
+        settings[key] = raw[key];
+      }
     }
   }
   if (!['manual', 'recent'].includes(settings.sortOrder)) settings.sortOrder = 'manual';
