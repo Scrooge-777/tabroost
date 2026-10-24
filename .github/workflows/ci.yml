@@ -35,7 +35,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm install --no-save playwright-core@1.49.1
+      - run: npm install --no-save playwright-core@1.58.2
       - run: npx playwright-core install --with-deps chromium
       - name: Extension smoke tests
         run: |

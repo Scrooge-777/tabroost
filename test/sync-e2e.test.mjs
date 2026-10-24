@@ -215,8 +215,6 @@ await test('edits made while the request is in flight are kept', async () => {
 
 await test('a write by another device mid-sync is merged, not overwritten', async () => {
   await load(deviceB);
-  const state = await workspaceManager.loadState();
-  const gistId = state.settings.syncGistId;
   const other = await workspaceManager.createWorkspace({ name: 'From device B' });
   const before = server.calls.length;
 
