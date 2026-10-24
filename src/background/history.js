@@ -82,6 +82,31 @@ export const history = {
     });
   },
 
+  /**
+   * Store a version of a workspace that is not (or no longer) the stored one, such as the
+   * copy a sync conflict replaced. Returns the version id, or null if it matches the newest.
+   */
+  async addExternal(workspaceId, ws, reason = 'sync-conflict') {
+    return withLock(async () => {
+      const all = await readAll();
+      const versions = all[workspaceId] || [];
+      const sig = signature(ws.tabs || [], ws.groups || []);
+      if (versions[0] && versions[0].sig === sig) return versions[0].id;
+
+      const version = {
+        id: generateId('v'),
+        at: Date.now(),
+        reason,
+        sig,
+        tabs: (ws.tabs || []).map(({ id, url, title, pinned, index, groupId, active }) => ({ id, url, title, pinned, index, groupId, active })),
+        groups: (ws.groups || []).map((g) => ({ ...g }))
+      };
+      all[workspaceId] = [version, ...versions].slice(0, MAX_VERSIONS_PER_WORKSPACE);
+      await storage.setLocal({ [STORAGE_KEYS.HISTORY]: all });
+      return version.id;
+    });
+  },
+
   async list(workspaceId) {
     const all = await readAll();
     const versions = all[workspaceId] || [];

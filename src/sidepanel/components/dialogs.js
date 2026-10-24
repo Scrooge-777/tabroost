@@ -32,6 +32,7 @@ export function openWorkspaceDialog({
   name = '',
   color = 'blue',
   icon = '',
+  notes = '',
   includeTabs = false,
   tabCount = 0,
   canIncludeTabs = true
@@ -63,6 +64,11 @@ export function openWorkspaceDialog({
           <button type="button" class="emoji-btn" data-emoji="" aria-label="No icon" title="Use the first letter">Aa</button>
           ${EMOJI_PRESETS.map((e) => `<button type="button" class="emoji-btn" data-emoji="${e}" aria-label="${e}">${e}</button>`).join('')}
         </div>
+      </div>
+
+      <div class="field">
+        <label for="dlg-ws-notes">Notes <span class="muted">(optional)</span></label>
+        <textarea id="dlg-ws-notes" name="notes" class="notes-input" rows="2" maxlength="500" placeholder="What is this workspace for? Next steps, links to remember…" spellcheck="true">${escapeHtml(notes)}</textarea>
       </div>
 
       ${isCreate && canIncludeTabs ? `
@@ -122,6 +128,7 @@ export function openWorkspaceDialog({
         name: value,
         color: picker.getSelected(),
         icon: selectedIcon,
+        notes: form.elements.notes?.value || '',
         includeTabs: Boolean(form.elements.includeTabs?.checked)
       };
     });
@@ -171,7 +178,8 @@ const REASON_LABELS = {
   auto: 'Automatic',
   manual: 'Saved by you',
   closed: 'Window closed',
-  'before-restore': 'Before a restore'
+  'before-restore': 'Before a restore',
+  'sync-conflict': 'Replaced by sync'
 };
 
 /**

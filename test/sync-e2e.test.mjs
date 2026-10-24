@@ -239,6 +239,49 @@ await test('a write by another device mid-sync is merged, not overwritten', asyn
   assert.ok(finalNames.includes('From device B') || other.name === 'From device B');
 });
 
+await test('both devices editing the same workspace keeps the newer one and saves the other in history', async () => {
+  const { history } = await import('../src/background/history.js');
+  const editTabs = (id, url, at) => workspaceManager.mutate((state) => {
+    const ws = state.workspaces[id];
+    ws.tabs = [{ id: `t-${url}`, url, title: url, pinned: false, groupId: null, index: 0, active: true, favIconUrl: '' }];
+    ws.updatedAt = at;
+    return true;
+  });
+
+  resetAll();
+  await configure();
+  const shared = await workspaceManager.createWorkspace({ name: 'Shared', tabs: [{ id: 't0', url: 'https://start.test/', title: 'start', index: 0 }] });
+  await engine.syncNow();
+  const gistId = (await workspaceManager.loadState()).settings.syncGistId;
+  const a = await snapshot();
+
+  resetAll();
+  await configure({ syncGistId: gistId });
+  await engine.syncNow();
+  const b = await snapshot();
+
+  const base = Date.now() + 60000;
+  await load(a);
+  await editTabs(shared.id, 'https://from-a.test/', base);
+  await engine.syncNow();
+
+  await load(b);
+  await editTabs(shared.id, 'https://from-b.test/', base + 5000); // newer
+  await engine.syncNow();
+
+  const state = await workspaceManager.loadState();
+  assert.equal(state.workspaces[shared.id].tabs[0].url, 'https://from-b.test/', 'newer edit wins');
+  const status = await engine.getStatus();
+  assert.equal(status.conflicts.length, 1);
+  assert.equal(status.conflicts[0].kept, 'local');
+  assert.equal(status.conflicts[0].name, 'Shared');
+  const versions = await history.list(shared.id);
+  assert.ok(versions.some((v) => v.reason === 'sync-conflict'), 'the losing copy is in history');
+
+  await engine.clearConflicts();
+  assert.equal((await engine.getStatus()).conflicts.length, 0);
+});
+
 await test('wrong passphrase fails without touching local data', async () => {
   await load(deviceB);
   const before = await names();

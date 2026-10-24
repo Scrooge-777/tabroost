@@ -14,6 +14,7 @@ import { backups } from './backups.js';
 import { pageFeatures } from './page-features.js';
 import { syncEngine } from './sync-engine.js';
 import { migrateLegacySecrets } from '../shared/secrets.js';
+import { sessionRestore } from './session-restore.js';
 import { MESSAGE_TYPES, STORAGE_KEYS } from '../shared/constants.js';
 import { debounce } from '../shared/utils.js';
 
@@ -45,6 +46,7 @@ chrome.runtime.onStartup.addListener(async () => {
   await backups.ensureAlarm().catch(() => {});
   await syncEngine.ensureAlarm().catch(() => {});
   await startupRecovery.runRecovery();
+  await sessionRestore.prepareOnStartup().catch((err) => console.warn('sessionRestore: startup failed', err));
   await updateToolbarBadge();
 });
 
@@ -100,6 +102,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     refreshDerivedUi();
   } else if (area === 'session' && changes[STORAGE_KEYS.WINDOW_BINDINGS]) {
     refreshDerivedUi();
+    sessionRestore.rememberSoon();
   }
 });
 

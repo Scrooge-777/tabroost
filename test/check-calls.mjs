@@ -16,6 +16,8 @@ const targets = {
   pageFeatures: (await import('../src/background/page-features.js')).pageFeatures,
   syncEngine: (await import('../src/background/sync-engine.js')).syncEngine,
   history: (await import('../src/background/history.js')).history,
+  sessionRestore: (await import('../src/background/session-restore.js')).sessionRestore,
+  templates: (await import('../src/background/templates.js')).templates,
   tabSync: (await import('../src/background/tab-sync.js')).tabSync,
   storage: (await import('../src/shared/storage.js')).storage
 };
@@ -40,7 +42,7 @@ let missing = 0;
 for (const file of walk('src')) {
   const text = fs.readFileSync(file, 'utf8');
   for (const [name, obj] of Object.entries(targets)) {
-    const re = new RegExp(String.raw`\b${name}\.([A-Za-z_$][\w$]*)\s*\(`, 'g');
+    const re = new RegExp(String.raw`(?<![.\w$])${name}\.([A-Za-z_$][\w$]*)\s*\(`, 'g');
     let m;
     while ((m = re.exec(text)) !== null) {
       if (!has(obj, m[1])) {

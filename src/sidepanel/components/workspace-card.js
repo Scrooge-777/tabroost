@@ -45,6 +45,7 @@ export function renderWorkspaceCard({
     <span class="ws-text">
       <span class="ws-name">${highlightName(workspace.name, searchQuery)}</span>
       <span class="ws-meta">${escapeHtml(describeWorkspace(workspace))}${!isOpen && workspace.lastOpenedAt ? ` · ${escapeHtml(timeAgo(workspace.lastOpenedAt))}` : ''}</span>
+      ${workspace.notes ? `<span class="ws-note" title="${escapeHtml(workspace.notes)}">${escapeHtml(workspace.notes.split('\n')[0])}</span>` : ''}
     </span>
     ${status}
     <button type="button" class="icon-btn ws-more" data-act="menu" aria-label="Workspace options" title="Options" tabindex="-1">${ICONS.more}</button>

@@ -119,6 +119,14 @@ class OptionsApp {
     }
 
     document.getElementById('btn-reset-handle')?.addEventListener('click', () => this.save({ pillOffsetY: null }));
+    document.getElementById('btn-clear-conflicts')?.addEventListener('click', async () => {
+      try {
+        await sendBackgroundMessage(MESSAGE_TYPES.CLEAR_SYNC_CONFLICTS);
+        await this.renderSyncStatus();
+      } catch (err) {
+        toastError(err);
+      }
+    });
     document.getElementById('btn-export').addEventListener('click', () => this.exportJson());
     document.getElementById('file-import').addEventListener('change', (e) => this.importJson(e));
     document.getElementById('btn-reset').addEventListener('click', () => this.resetAll());
@@ -171,6 +179,15 @@ class OptionsApp {
       for (const input of this.secretInputs) {
         const has = input.dataset.secret === 'token' ? status.hasToken : status.hasPassphrase;
         input.placeholder = has ? '•••••••• saved. Type to replace' : input.dataset.secret === 'token' ? 'ghp_...' : 'At least 8 characters';
+      }
+      const box = document.getElementById('sync-conflicts');
+      const list = document.getElementById('sync-conflict-list');
+      if (box && list) {
+        const conflicts = status.conflicts || [];
+        box.classList.toggle('hidden', conflicts.length === 0);
+        list.innerHTML = conflicts
+          .map((c) => `<li><span>${escapeHtml(c.name)}</span> <span class="muted">kept ${c.kept === 'local' ? 'this device' : 'the other device'}'s version · ${escapeHtml(timeAgo(c.at))}</span></li>`)
+          .join('');
       }
       if (!status.enabled) {
         statusEl.textContent = 'Sync is currently off';

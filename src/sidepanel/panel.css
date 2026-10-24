@@ -789,3 +789,13 @@ body.is-dragging-tab .ungroup-zone { display: flex; }
 .history-main { display: flex; flex-direction: column; min-width: 0; }
 .history-time { font-weight: 600; }
 .history-meta { color: var(--text-2); font-size: 12px; }
+
+/* Reopen-last-session offer */
+.restore-bar { display: flex; align-items: center; gap: 8px; margin: 0 12px 8px; padding: 8px 10px; border: 1px solid var(--border, rgba(127,127,127,.25)); border-radius: 12px; background: var(--surface-2, rgba(127,127,127,.08)); }
+.restore-bar.hidden { display: none; }
+.restore-bar .rb-text { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: 12px; }
+.restore-bar .rb-text .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Workspace notes */
+.ws-note { font-size: 11.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+.notes-input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border, rgba(127,127,127,.35)); background: transparent; color: inherit; }

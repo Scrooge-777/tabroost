@@ -135,6 +135,31 @@ const pages = {
     await panel.waitForSelector('dialog[open]', { state: 'detached' });
   });
 
+  await step('save as template shows up under New workspace', async () => {
+    await panel.hover('.ws-card:nth-child(2) .ws-row');
+    await panel.click('.ws-card:nth-child(2) [data-act="menu"]');
+    await panel.waitForSelector('.menu');
+    await panel.click('.menu-item:has-text("Save as template")');
+    await panel.waitForSelector('.toast:has-text("template")');
+    await panel.waitForTimeout(600);
+    await panel.click('[data-act="new"]');
+    await panel.waitForSelector('.menu:has-text("From a template")');
+    await panel.screenshot({ path: path.join(OUT, '06c-templates-menu.png') });
+    await panel.keyboard.press('Escape');
+    await panel.waitForSelector('.menu', { state: 'detached' });
+  });
+
+  await step('notes are saved from the edit dialog and shown on the card', async () => {
+    await panel.hover('.ws-card:nth-child(2) .ws-row');
+    await panel.click('.ws-card:nth-child(2) [data-act="menu"]');
+    await panel.click('.menu-item:has-text("Edit name")');
+    await panel.waitForSelector('dialog[open] textarea[name="notes"]');
+    await panel.fill('dialog[open] textarea[name="notes"]', 'Finish week 3 reading');
+    await panel.click('dialog[open] button[type="submit"]');
+    await panel.waitForSelector('.ws-note:has-text("Finish week 3 reading")', { timeout: 5000 });
+    await panel.screenshot({ path: path.join(OUT, '06d-notes.png') });
+  });
+
   await step('ctrl+k focuses search', async () => {
     await panel.click('body', { position: { x: 5, y: 5 } });
     await panel.keyboard.press('Control+k');
