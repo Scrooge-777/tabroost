@@ -108,7 +108,12 @@ class OptionsApp {
           }
         }
 
-        await this.save({ [key]: value });
+        if (key === 'pillPosition') {
+          // Reset drag offset so the chosen preset position applies cleanly
+          await this.save({ [key]: value, pillOffsetY: null });
+        } else {
+          await this.save({ [key]: value });
+        }
 
         // Drop the site permission once no feature needs it
         if (input.hasAttribute('data-needs-sites') && !value && !this.settings.showPagePill && !this.settings.accentBorder) {

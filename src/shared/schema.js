@@ -165,7 +165,11 @@ export function sanitizeSettings(raw = {}) {
     }
   }
   if (!['manual', 'recent'].includes(settings.sortOrder)) settings.sortOrder = 'manual';
-  if (!['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center-left', 'center-right'].includes(settings.pillPosition)) {
+  const ALLOWED_PILL_POSITIONS = [
+    'top-left', 'upper-left', 'mid-upper-left', 'center-left', 'mid-lower-left', 'lower-left', 'bottom-left',
+    'top-right', 'upper-right', 'mid-upper-right', 'center-right', 'mid-lower-right', 'lower-right', 'bottom-right'
+  ];
+  if (!ALLOWED_PILL_POSITIONS.includes(settings.pillPosition)) {
     settings.pillPosition = 'top-left';
   }
   if (!['handle', 'dot'].includes(settings.pillStyle)) settings.pillStyle = 'handle';

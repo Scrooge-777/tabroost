@@ -79,41 +79,50 @@
 
         /* Screen Positions */
         .pill.pos-top-left { top: 14px; left: 14px; right: auto; bottom: auto; }
-        .pill.pos-top-right { top: 14px; right: 14px; left: auto; bottom: auto; flex-direction: row-reverse; }
-        .pill.pos-bottom-left { bottom: 14px; left: 14px; top: auto; right: auto; }
-        .pill.pos-bottom-right { bottom: 14px; right: 14px; top: auto; left: auto; flex-direction: row-reverse; }
+        .pill.pos-upper-left { top: 25%; left: 14px; transform: translateY(-50%); bottom: auto; right: auto; }
+        .pill.pos-mid-upper-left { top: 38%; left: 14px; transform: translateY(-50%); bottom: auto; right: auto; }
         .pill.pos-center-left { top: 50%; left: 14px; transform: translateY(-50%); bottom: auto; right: auto; }
+        .pill.pos-mid-lower-left { top: 62%; left: 14px; transform: translateY(-50%); bottom: auto; right: auto; }
+        .pill.pos-lower-left { top: 75%; left: 14px; transform: translateY(-50%); bottom: auto; right: auto; }
+        .pill.pos-bottom-left { bottom: 14px; left: 14px; top: auto; right: auto; }
+
+        .pill.pos-top-right { top: 14px; right: 14px; left: auto; bottom: auto; flex-direction: row-reverse; }
+        .pill.pos-upper-right { top: 25%; right: 14px; transform: translateY(-50%); bottom: auto; left: auto; flex-direction: row-reverse; }
+        .pill.pos-mid-upper-right { top: 38%; right: 14px; transform: translateY(-50%); bottom: auto; left: auto; flex-direction: row-reverse; }
         .pill.pos-center-right { top: 50%; right: 14px; transform: translateY(-50%); bottom: auto; left: auto; flex-direction: row-reverse; }
+        .pill.pos-mid-lower-right { top: 62%; right: 14px; transform: translateY(-50%); bottom: auto; left: auto; flex-direction: row-reverse; }
+        .pill.pos-lower-right { top: 75%; right: 14px; transform: translateY(-50%); bottom: auto; left: auto; flex-direction: row-reverse; }
+        .pill.pos-bottom-right { bottom: 14px; right: 14px; top: auto; left: auto; flex-direction: row-reverse; }
 
         /* Size 1: Compact (26px) */
         .pill.size-compact { height: 26px; max-width: 26px; padding: 0 7px; border-radius: 13px; font-size: 11px; }
         .pill.size-compact:hover, .pill.size-compact.open, .pill.size-compact:focus-visible { max-width: 220px; gap: 6px; padding: 0 10px 0 8px; }
-        .pill.size-compact.pos-top-right:hover, .pill.size-compact.pos-bottom-right:hover, .pill.size-compact.pos-center-right:hover,
-        .pill.size-compact.pos-top-right.open, .pill.size-compact.pos-bottom-right.open, .pill.size-compact.pos-center-right.open { padding: 0 8px 0 10px; }
+        .pill.size-compact[class*="-right"]:hover,
+        .pill.size-compact[class*="-right"].open, .pill.size-compact[class*="-right"]:focus-visible { padding: 0 8px 0 10px; }
         .pill.size-compact .dot { width: 10px; height: 10px; }
         .pill.size-compact .dot.unsaved { border: 1.5px dashed #e8eaed; background: rgba(255,255,255,.08); }
 
         /* Size 2: Medium / Default (34px) */
         .pill.size-medium { height: 34px; max-width: 34px; padding: 0 9px; border-radius: 17px; font-size: 13px; }
         .pill.size-medium:hover, .pill.size-medium.open, .pill.size-medium:focus-visible { max-width: 260px; gap: 8px; padding: 0 14px 0 10px; }
-        .pill.size-medium.pos-top-right:hover, .pill.size-medium.pos-bottom-right:hover, .pill.size-medium.pos-center-right:hover,
-        .pill.size-medium.pos-top-right.open, .pill.size-medium.pos-bottom-right.open, .pill.size-medium.pos-center-right.open { padding: 0 10px 0 14px; }
+        .pill.size-medium[class*="-right"]:hover,
+        .pill.size-medium[class*="-right"].open, .pill.size-medium[class*="-right"]:focus-visible { padding: 0 10px 0 14px; }
         .pill.size-medium .dot { width: 14px; height: 14px; }
         .pill.size-medium .dot.unsaved { border: 2px dashed #e8eaed; background: rgba(255,255,255,.1); }
 
         /* Size 3: Large (42px) */
         .pill.size-large { height: 42px; max-width: 42px; padding: 0 11px; border-radius: 21px; font-size: 14px; }
         .pill.size-large:hover, .pill.size-large.open, .pill.size-large:focus-visible { max-width: 300px; gap: 9px; padding: 0 16px 0 12px; }
-        .pill.size-large.pos-top-right:hover, .pill.size-large.pos-bottom-right:hover, .pill.size-large.pos-center-right:hover,
-        .pill.size-large.pos-top-right.open, .pill.size-large.pos-bottom-right.open, .pill.size-large.pos-center-right.open { padding: 0 12px 0 16px; }
+        .pill.size-large[class*="-right"]:hover,
+        .pill.size-large[class*="-right"].open, .pill.size-large[class*="-right"]:focus-visible { padding: 0 12px 0 16px; }
         .pill.size-large .dot { width: 18px; height: 18px; }
         .pill.size-large .dot.unsaved { border: 2.5px dashed #e8eaed; background: rgba(255,255,255,.12); }
 
         /* Size 4: Extra Large (50px) */
         .pill.size-xlarge { height: 50px; max-width: 50px; padding: 0 13px; border-radius: 25px; font-size: 16px; }
         .pill.size-xlarge:hover, .pill.size-xlarge.open, .pill.size-xlarge:focus-visible { max-width: 340px; gap: 10px; padding: 0 18px 0 14px; }
-        .pill.size-xlarge.pos-top-right:hover, .pill.size-xlarge.pos-bottom-right:hover, .pill.size-xlarge.pos-center-right:hover,
-        .pill.size-xlarge.pos-top-right.open, .pill.size-xlarge.pos-bottom-right.open, .pill.size-xlarge.pos-center-right.open { padding: 0 14px 0 18px; }
+        .pill.size-xlarge[class*="-right"]:hover,
+        .pill.size-xlarge[class*="-right"].open, .pill.size-xlarge[class*="-right"]:focus-visible { padding: 0 14px 0 18px; }
         .pill.size-xlarge .dot { width: 22px; height: 22px; }
         .pill.size-xlarge .dot.unsaved { border: 3px dashed #e8eaed; background: rgba(255,255,255,.15); }
 
@@ -130,10 +139,14 @@
         .handle.side-left { left: 0; border-radius: 0 6px 6px 0; }
         .handle.side-right { right: 0; border-radius: 6px 0 0 6px; }
         .handle.v-top { top: 14px; }
+        .handle.v-upper { top: 25%; margin-top: calc(var(--h) / -2); }
+        .handle.v-mid-upper { top: 38%; margin-top: calc(var(--h) / -2); }
+        .handle.v-center { top: 50%; margin-top: calc(var(--h) / -2); }
+        .handle.v-mid-lower { top: 62%; margin-top: calc(var(--h) / -2); }
+        .handle.v-lower { top: 75%; margin-top: calc(var(--h) / -2); }
         .handle.v-bottom { bottom: 14px; }
         .handle.v-free { margin-top: calc(var(--h) / -2); }
         .handle { touch-action: none; }
-        .handle.v-center { top: 50%; margin-top: calc(var(--h) / -2); }
         .handle.size-compact { --h: 36px; width: 4px; height: var(--h); }
         .handle.size-medium { --h: 56px; width: 5px; height: var(--h); }
         .handle.size-large { --h: 76px; width: 6px; height: var(--h); }
@@ -145,8 +158,12 @@
         iframe.edge.side-left { left: 18px; right: auto; transform-origin: left center; animation: pop-left .16s cubic-bezier(.2,.9,.3,1); }
         iframe.edge.side-right { right: 18px; left: auto; transform-origin: right center; animation: pop-right .16s cubic-bezier(.2,.9,.3,1); }
         iframe.edge.v-top { top: 14px; bottom: auto; }
-        iframe.edge.v-bottom { bottom: 14px; top: auto; }
+        iframe.edge.v-upper { top: 25%; bottom: auto; transform: translateY(-25%); }
+        iframe.edge.v-mid-upper { top: 38%; bottom: auto; transform: translateY(-38%); }
         iframe.edge.v-center { top: 50%; bottom: auto; transform: translateY(-50%); }
+        iframe.edge.v-mid-lower { top: 62%; bottom: auto; transform: translateY(-62%); }
+        iframe.edge.v-lower { top: 75%; bottom: auto; transform: translateY(-75%); }
+        iframe.edge.v-bottom { bottom: 14px; top: auto; }
         @keyframes pop-left { from { opacity: 0; translate: -12px 0; scale: .97; } }
         @keyframes pop-right { from { opacity: 0; translate: 12px 0; scale: .97; } }
         @media (prefers-reduced-motion: reduce) { iframe.edge { animation: none; } }
@@ -159,11 +176,20 @@
           animation: pop .16s cubic-bezier(.2,.9,.3,1);
         }
         iframe.pos-top-left { top: 58px; left: 14px; }
-        iframe.pos-top-right { top: 58px; right: 14px; }
-        iframe.pos-bottom-left { bottom: 58px; left: 14px; }
-        iframe.pos-bottom-right { bottom: 58px; right: 14px; }
+        iframe.pos-upper-left { top: 25%; left: 14px; transform: translateY(-25%); }
+        iframe.pos-mid-upper-left { top: 38%; left: 14px; transform: translateY(-38%); }
         iframe.pos-center-left { top: 50%; left: 14px; transform: translateY(-50%); }
+        iframe.pos-mid-lower-left { top: 62%; left: 14px; transform: translateY(-62%); }
+        iframe.pos-lower-left { top: 75%; left: 14px; transform: translateY(-75%); }
+        iframe.pos-bottom-left { bottom: 58px; left: 14px; }
+
+        iframe.pos-top-right { top: 58px; right: 14px; }
+        iframe.pos-upper-right { top: 25%; right: 14px; transform: translateY(-25%); }
+        iframe.pos-mid-upper-right { top: 38%; right: 14px; transform: translateY(-38%); }
         iframe.pos-center-right { top: 50%; right: 14px; transform: translateY(-50%); }
+        iframe.pos-mid-lower-right { top: 62%; right: 14px; transform: translateY(-62%); }
+        iframe.pos-lower-right { top: 75%; right: 14px; transform: translateY(-75%); }
+        iframe.pos-bottom-right { bottom: 58px; right: 14px; }
 
         @keyframes pop { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
         @media (prefers-reduced-motion: reduce) { .pill, .chev, iframe { transition: none; animation: none; } }
@@ -201,7 +227,7 @@
       drag.moved = true;
       clearTimeout(hoverTimer);
       const pct = Math.min(95, Math.max(5, (e.clientY / window.innerHeight) * 100));
-      handleEl.classList.remove('v-top', 'v-center', 'v-bottom');
+      handleEl.classList.remove('v-top', 'v-upper', 'v-mid-upper', 'v-center', 'v-mid-lower', 'v-lower', 'v-bottom');
       handleEl.classList.add('v-free');
       handleEl.style.top = `${pct}%`;
       drag.pct = pct;
@@ -268,12 +294,18 @@
     // Edge handle (default): side + vertical anchor come from the position setting
     const handle = shadow.querySelector('.handle');
     const side = pos.endsWith('right') ? 'right' : 'left';
-    const vertical = pos.startsWith('bottom') ? 'bottom' : pos.startsWith('center') ? 'center' : 'top';
+    let vertical = 'top';
+    if (pos.startsWith('bottom')) vertical = 'bottom';
+    else if (pos.startsWith('mid-lower')) vertical = 'mid-lower';
+    else if (pos.startsWith('lower')) vertical = 'lower';
+    else if (pos.startsWith('center')) vertical = 'center';
+    else if (pos.startsWith('mid-upper')) vertical = 'mid-upper';
+    else if (pos.startsWith('upper')) vertical = 'upper';
     handle.style.display = data?.showPill && style === 'handle' ? 'block' : 'none';
     handle.className = `handle side-${side} v-${vertical} size-${size}${isWorkspace ? '' : ' unsaved'}${flyout ? ' open' : ''}`;
     currentOffsetY = typeof data?.offsetY === 'number' ? data.offsetY : null;
     if (currentOffsetY !== null) {
-      handle.classList.remove('v-top', 'v-center', 'v-bottom');
+      handle.classList.remove('v-top', 'v-upper', 'v-mid-upper', 'v-center', 'v-mid-lower', 'v-lower', 'v-bottom');
       handle.classList.add('v-free');
       handle.style.top = `${currentOffsetY}%`;
     } else {
@@ -319,7 +351,14 @@
     if (!alive() || !shadow) return;
     flyout = document.createElement('iframe');
     const edgeSide = currentPosition.endsWith('right') ? 'right' : 'left';
-    const edgeV = currentOffsetY !== null ? 'free' : currentPosition.startsWith('bottom') ? 'bottom' : currentPosition.startsWith('center') ? 'center' : 'top';
+    let edgeV = 'top';
+    if (currentOffsetY !== null) edgeV = 'free';
+    else if (currentPosition.startsWith('bottom')) edgeV = 'bottom';
+    else if (currentPosition.startsWith('mid-lower')) edgeV = 'mid-lower';
+    else if (currentPosition.startsWith('lower')) edgeV = 'lower';
+    else if (currentPosition.startsWith('center')) edgeV = 'center';
+    else if (currentPosition.startsWith('mid-upper')) edgeV = 'mid-upper';
+    else if (currentPosition.startsWith('upper')) edgeV = 'upper';
     flyout.className = currentStyle === 'handle' ? `edge side-${edgeSide} v-${edgeV}` : `pos-${currentPosition}`;
     if (currentStyle === 'handle' && currentOffsetY !== null) {
       // Line the popup up with the dragged handle, kept fully on screen

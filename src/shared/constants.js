@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS = {
   confirmDelete: true,
   sortOrder: 'manual', // 'manual' | 'recent'
   showPagePill: false,
-  pillPosition: 'top-left', // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center-left' | 'center-right'
+  pillPosition: 'top-left', // 'top-left' | 'upper-left' | 'mid-upper-left' | 'center-left' | 'mid-lower-left' | 'lower-left' | 'bottom-left' | 'top-right' | 'upper-right' | 'mid-upper-right' | 'center-right' | 'mid-lower-right' | 'lower-right' | 'bottom-right'
   pillStyle: 'handle', // 'handle' (edge strip + slide-out panel) | 'dot'
   pillSize: 'medium',
   pillOpenOnHover: false,

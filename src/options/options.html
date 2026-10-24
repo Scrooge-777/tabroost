@@ -148,12 +148,24 @@
             <span class="row-desc">Which side and height the handle sits at. The panel slides out from the same side.</span>
           </span>
           <select class="select" data-setting="pillPosition">
-            <option value="top-left">Top Left (Default)</option>
-            <option value="top-right">Top Right</option>
-            <option value="bottom-left">Bottom Left</option>
-            <option value="bottom-right">Bottom Right</option>
-            <option value="center-left">Center Left</option>
-            <option value="center-right">Center Right</option>
+            <optgroup label="Left Edge (Panel slides out from Left)">
+              <option value="top-left">Top Left (Top edge, 14px)</option>
+              <option value="upper-left">Upper Left (25% height)</option>
+              <option value="mid-upper-left">Upper-Middle Left (38% height)</option>
+              <option value="center-left">Center Left (50% middle)</option>
+              <option value="mid-lower-left">Lower-Middle Left (62% height)</option>
+              <option value="lower-left">Lower Left (75% height)</option>
+              <option value="bottom-left">Bottom Left (Bottom edge, 14px)</option>
+            </optgroup>
+            <optgroup label="Right Edge (Panel slides out from Right)">
+              <option value="top-right">Top Right (Top edge, 14px)</option>
+              <option value="upper-right">Upper Right (25% height)</option>
+              <option value="mid-upper-right">Upper-Middle Right (38% height)</option>
+              <option value="center-right">Center Right (50% middle)</option>
+              <option value="mid-lower-right">Lower-Middle Right (62% height)</option>
+              <option value="lower-right">Lower Right (75% height)</option>
+              <option value="bottom-right">Bottom Right (Bottom edge, 14px)</option>
+            </optgroup>
           </select>
         </label>
 
