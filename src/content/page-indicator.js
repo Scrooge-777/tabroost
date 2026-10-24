@@ -135,13 +135,14 @@
         .handle:hover, .handle:focus-visible, .handle.open { width: 10px; }
 
         /* Flyout iframe positioning */
-        iframe.edge {
-          top: 0; bottom: auto; height: 100vh; max-height: none; border-radius: 0; width: 360px;
-        }
-        iframe.edge.side-left { left: 0; right: auto; animation: slide-left .18s cubic-bezier(.2,.9,.3,1); }
-        iframe.edge.side-right { right: 0; left: auto; animation: slide-right .18s cubic-bezier(.2,.9,.3,1); }
-        @keyframes slide-left { from { transform: translateX(-100%); } }
-        @keyframes slide-right { from { transform: translateX(100%); } }
+        /* Popup card that opens beside the handle, not a full-height sidebar */
+        iframe.edge.side-left { left: 18px; right: auto; transform-origin: left center; animation: pop-left .16s cubic-bezier(.2,.9,.3,1); }
+        iframe.edge.side-right { right: 18px; left: auto; transform-origin: right center; animation: pop-right .16s cubic-bezier(.2,.9,.3,1); }
+        iframe.edge.v-top { top: 14px; bottom: auto; }
+        iframe.edge.v-bottom { bottom: 14px; top: auto; }
+        iframe.edge.v-center { top: 50%; bottom: auto; transform: translateY(-50%); }
+        @keyframes pop-left { from { opacity: 0; translate: -12px 0; scale: .97; } }
+        @keyframes pop-right { from { opacity: 0; translate: 12px 0; scale: .97; } }
         @media (prefers-reduced-motion: reduce) { iframe.edge { animation: none; } }
 
         iframe {
@@ -258,7 +259,8 @@
     if (!alive() || !shadow) return;
     flyout = document.createElement('iframe');
     const edgeSide = currentPosition.endsWith('right') ? 'right' : 'left';
-    flyout.className = currentStyle === 'handle' ? `edge side-${edgeSide}` : `pos-${currentPosition}`;
+    const edgeV = currentPosition.startsWith('bottom') ? 'bottom' : currentPosition.startsWith('center') ? 'center' : 'top';
+    flyout.className = currentStyle === 'handle' ? `edge side-${edgeSide} v-${edgeV}` : `pos-${currentPosition}`;
     flyout.src = chrome.runtime.getURL('src/sidepanel/panel.html?mode=flyout');
     flyout.title = 'Tabroost';
     shadow.appendChild(flyout);
