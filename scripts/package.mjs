@@ -29,7 +29,9 @@ if (fs.existsSync(zipPath)) {
 
 // Bundle core extension files (excluding test, docs, node_modules, .git)
 const includeEntries = ['manifest.json', 'src', 'assets', 'LICENSE', 'README.md'];
-const command = `tar.exe -a -c -f "${zipPath}" ${includeEntries.join(' ')}`;
+const command = process.platform === 'win32'
+  ? `tar.exe -a -c -f "${zipPath}" ${includeEntries.join(' ')}`
+  : `zip -r -q "${zipPath}" ${includeEntries.join(' ')}`;
 
 try {
   execSync(command, { cwd: rootDir, stdio: 'inherit' });

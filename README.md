@@ -3,7 +3,7 @@
 # 🪺 Tabroost
 
 **A home for every project's tabs.**
-Edge-style workspaces for Brave and Chrome: one window per project, saved tabs and tab groups, instant switching.
+Edge-style workspaces for Brave, Chrome, Edge and other Chromium browsers: one window per project, saved tabs and tab groups, instant switching.
 
 [![CI](https://github.com/Scrooge-777/tabroost/actions/workflows/ci.yml/badge.svg)](https://github.com/Scrooge-777/tabroost/actions/workflows/ci.yml)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4)
@@ -206,7 +206,10 @@ flowchart TB
 
 ## Privacy
 
-- Everything stays in your browser's local extension storage. Nothing is sent anywhere, and there is no analytics.
+- Everything stays in your browser's local extension storage. There is no analytics and no server of ours.
+- **Cloud sync is opt-in.** When you turn it on, workspaces are encrypted in the browser (AES-256-GCM, key from your passphrase via PBKDF2, 600,000 iterations) and stored in a private GitHub Gist you own. GitHub only ever sees ciphertext. Your token and passphrase are kept for the browser session only unless you choose to remember them, and they are never included in exports or backups. A lost passphrase cannot be recovered.
+- Chromium browsers with Manifest V3 and the side panel API (Chrome 116+, Brave, Edge, Opera) are supported. Firefox is not.
+- See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 - No website access by default. The optional page indicator asks for permission only when you turn it on, and turning it off removes it.
 - Permissions used: `tabs`, `tabGroups`, `storage`, `unlimitedStorage`, `sidePanel`, `favicon`, `contextMenus`, `alarms`, `scripting`.
 
@@ -229,7 +232,10 @@ docs/                 Screenshots and the how-it-works canvas
 No build step. Edit the files, then click reload on the extension card.
 
 ```bash
-npm test                 # import check + 43 logic tests against a chrome.* mock
+npm test                 # import, call-contract and version checks, logic and sync tests against a chrome.* mock
+npm run lint             # ESLint
+npm run coverage         # tests with c8 coverage
+npm run pack             # build dist/tabroost-v<version>.zip
 npm run test:browser     # loads the extension in headless Brave via playwright-core
 npm run test:page        # on-page pill + accent border in a real browser
 ```
@@ -240,7 +246,7 @@ See [`test/manual-checklist.md`](test/manual-checklist.md) for the hands-on test
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm test` before opening a PR. CI runs it on every push.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Please run `npm run lint` and `npm test` before opening a PR. CI runs both on every push.
 
 ## License
 

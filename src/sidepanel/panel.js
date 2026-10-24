@@ -16,7 +16,7 @@ import { describeWorkspace } from './components/tab-tree.js';
 import { showMenu, showMenuForButton, isMenuOpen, onMenuClosed } from './components/context-menu.js';
 import { LiveTabsView } from './components/live-tabs-view.js';
 import { showNamePrompt, isNamePromptOpen } from './components/group-name-prompt.js';
-import { openWorkspaceDialog, confirmDialog } from './components/dialogs.js';
+import { openWorkspaceDialog, confirmDialog, openHistoryDialog } from './components/dialogs.js';
 import { toast, toastError } from './components/toast.js';
 
 const MODE = new URLSearchParams(location.search).get('mode') || document.documentElement.dataset.mode || 'panel';
@@ -86,6 +86,11 @@ class SidePanelApp {
 
     await this.load();
     this.root.removeAttribute('aria-busy');
+    try {
+      if (localStorage.getItem('tabroost.view') === 'window') this.switchView('window');
+    } catch {
+      // Storage unavailable
+    }
     if (MODE !== 'panel') this.el.search.focus();
   }
 
@@ -100,6 +105,7 @@ class SidePanelApp {
         <div class="topbar-actions">
           <button type="button" class="icon-btn" data-act="new" title="New workspace (N)" aria-label="New workspace" aria-haspopup="menu">${ICONS.plus}</button>
           ${IS_TRANSIENT ? `<button type="button" class="icon-btn" data-act="dock" title="Open in side panel" aria-label="Open in side panel">${ICONS.panel}</button>` : ''}
+          ${MODE === 'flyout' ? `<button type="button" class="icon-btn" data-act="close" title="Close (Esc)" aria-label="Close">${ICONS.close}</button>` : ''}
           <button type="button" class="icon-btn" data-act="settings" title="Settings" aria-label="Settings">${ICONS.settings}</button>
         </div>
       </header>
@@ -154,6 +160,7 @@ class SidePanelApp {
       const act = actEl.dataset.act;
       if (act === 'new') this.newWorkspaceMenu(actEl);
       else if (act === 'dock') this.dockToSidePanel();
+      else if (act === 'close') this.closeIfTransient();
       else if (act === 'settings') chrome.runtime.openOptionsPage();
       else if (act === 'sort') this.toggleSort();
       else if (act === 'organize') this.organizeCurrentWindow();
@@ -207,6 +214,14 @@ class SidePanelApp {
     const typing = e.target.matches?.('input, textarea, [contenteditable="true"]');
     if (document.querySelector('dialog[open]')) return;
 
+    if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey) && !e.altKey) {
+      e.preventDefault();
+      this.switchView('workspaces');
+      this.el.search.focus();
+      this.el.search.select();
+      return;
+    }
+
     if (e.key === '/' && !typing) {
       e.preventDefault();
       this.switchView('workspaces');
@@ -233,6 +248,11 @@ class SidePanelApp {
 
   switchView(view) {
     this.view = view;
+    try {
+      localStorage.setItem('tabroost.view', view);
+    } catch {
+      // Storage unavailable: the choice just is not remembered
+    }
     this.root.querySelectorAll('[data-view]').forEach((btn) => {
       btn.setAttribute('aria-selected', String(btn.dataset.view === view));
     });
@@ -262,7 +282,8 @@ class SidePanelApp {
     } catch (err) {
       console.warn('load error:', err);
       if (!this.loaded) {
-        this.el.list.innerHTML = `<div class="empty"><p class="empty-text">Could not reach the extension. Try reopening this panel.</p></div>`;
+        this.el.list.innerHTML = `<div class="empty"><p class="empty-text">Could not reach the extension.<br><span class="muted">${escapeHtml(err?.message || '')}</span></p><button type="button" class="btn is-primary is-sm" data-act="retry">Retry</button></div>`;
+        this.el.list.querySelector('[data-act="retry"]')?.addEventListener('click', () => this.load());
       }
     }
   }
@@ -571,6 +592,7 @@ class SidePanelApp {
         open ? { label: 'Close window', icon: 'windowClose', onSelect: run(MESSAGE_TYPES.CLOSE_WORKSPACE, { id: ws.id }) } : null,
         { label: 'Edit name, color, icon', icon: 'edit', shortcut: 'F2', onSelect: () => this.editWorkspace(ws) },
         { label: 'Duplicate', icon: 'duplicate', onSelect: run(MESSAGE_TYPES.DUPLICATE_WORKSPACE, { id: ws.id }, `Duplicated “${ws.name}”`) },
+        { label: 'Version history…', icon: 'undo', onSelect: () => this.showHistory(ws) },
         { label: 'Auto-group tabs', icon: 'sparkle', onSelect: async () => {
           try {
             const res = await send(MESSAGE_TYPES.ORGANIZE_TABS, { workspaceId: ws.id });
@@ -585,6 +607,47 @@ class SidePanelApp {
         { label: 'Delete workspace', icon: 'trash', danger: true, shortcut: 'Del', onSelect: () => this.deleteWorkspace(ws) }
       ]
     });
+  }
+
+  async showHistory(ws) {
+    for (;;) {
+      let versions;
+      try {
+        ({ versions } = await send(MESSAGE_TYPES.LIST_HISTORY, { workspaceId: ws.id }));
+      } catch (err) {
+        toastError(err, 'Could not load history');
+        return;
+      }
+      const choice = await openHistoryDialog({ name: ws.name, versions });
+      if (!choice) return;
+
+      if (choice.action === 'save') {
+        try {
+          const res = await send(MESSAGE_TYPES.CREATE_VERSION, { workspaceId: ws.id });
+          toast(res?.created ? 'Version saved' : 'Nothing changed since the last version', { type: res?.created ? 'success' : 'info' });
+        } catch (err) {
+          toastError(err, 'Could not save version');
+        }
+        continue;
+      }
+
+      const open = this.isOpen(ws.id);
+      const { confirmed } = await confirmDialog({
+        title: 'Restore this version?',
+        message: open
+          ? 'The workspace window closes and reopens with the old tabs. The current tabs are kept as a version.'
+          : 'The workspace goes back to the old tabs. The current tabs are kept as a version.',
+        confirmLabel: 'Restore'
+      });
+      if (!confirmed) continue;
+      try {
+        await send(MESSAGE_TYPES.RESTORE_VERSION, { workspaceId: ws.id, versionId: choice.versionId });
+        toast(`Restored “${ws.name}”`, { type: 'success' });
+      } catch (err) {
+        toastError(err, 'Could not restore');
+      }
+      return;
+    }
   }
 
   async reorder(sourceId, targetId, position) {

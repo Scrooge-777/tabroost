@@ -78,9 +78,9 @@
         <div class="row">
           <span class="row-text">
             <span class="row-title">Master encryption passphrase</span>
-            <span class="row-desc">All workspace data is encrypted with this passphrase before leaving your browser.</span>
+            <span class="row-desc">All workspace data is encrypted with this passphrase before leaving your browser. Use at least 8 characters. It cannot be recovered if lost.</span>
           </span>
-          <input type="password" class="input" style="width: 260px;" data-setting="syncPassphrase" placeholder="Passphrase...">
+          <input type="password" class="input" style="width: 260px;" data-secret="passphrase" autocomplete="off" minlength="8" placeholder="At least 8 characters">
         </div>
 
         <div class="row">
@@ -88,8 +88,16 @@
             <span class="row-title">GitHub Personal Access Token (PAT)</span>
             <span class="row-desc">Needs <code>gist</code> scope to store encrypted data in a private secret Gist.</span>
           </span>
-          <input type="password" class="input" style="width: 260px;" data-setting="syncGistToken" placeholder="ghp_...">
+          <input type="password" class="input" style="width: 260px;" data-secret="token" autocomplete="off" placeholder="ghp_...">
         </div>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Remember token and passphrase on this device</span>
+            <span class="row-desc">Off (safer): they are kept for this browser session only and you re-enter the passphrase after restarting. On: they are stored unencrypted in this browser profile so background sync keeps working.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="syncRememberSecrets">
+        </label>
 
         <div class="row">
           <span class="row-text">
@@ -107,20 +115,31 @@
 
       <section class="card" aria-labelledby="h-pages">
         <h2 id="h-pages">On-page workspace indicator</h2>
-        <p class="card-desc">Permanent visual anchor across web pages to identify workspaces, switch contexts, or save new windows.</p>
-
-        <div class="row">
-          <span class="row-text">
-            <span class="row-title">Workspace floating dot</span>
-            <span class="row-desc">Permanent on all web pages. Solid colored circle for active workspaces; dashed ring for unsaved windows.</span>
-          </span>
-          <span class="tag is-done" style="font-weight: 600; padding: 4px 10px;">Permanent</span>
-        </div>
+        <p class="card-desc">Optional. A visual anchor on web pages to identify workspaces, switch contexts, or save new windows. Turning it on asks the browser for access to all websites; turning everything off removes that access.</p>
 
         <label class="row">
           <span class="row-text">
-            <span class="row-title">Dot screen position</span>
-            <span class="row-desc">Choose which corner or edge of the browser window the dot anchors to.</span>
+            <span class="row-title">Workspace side panel</span>
+            <span class="row-desc">A thin strip on the edge of web pages in the workspace color (dashed for unsaved windows). Click it to open your workspaces in a popup beside it.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="showPagePill" data-needs-sites>
+        </label>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Style</span>
+            <span class="row-desc">The edge handle stays out of the way of site menus and buttons. The dot is a small floating circle that expands on hover.</span>
+          </span>
+          <select class="select" data-setting="pillStyle">
+            <option value="handle">Edge handle + slide-out panel</option>
+            <option value="dot">Floating dot</option>
+          </select>
+        </label>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Screen position</span>
+            <span class="row-desc">Which side and height the handle sits at. The panel slides out from the same side.</span>
           </span>
           <select class="select" data-setting="pillPosition">
             <option value="top-left">Top Left (Default)</option>
@@ -147,10 +166,34 @@
 
         <label class="row">
           <span class="row-text">
+            <span class="row-title">Open when hovering the handle</span>
+            <span class="row-desc">Opens the popup after a short pause instead of waiting for a click.</span>
+          </span>
+          <input type="checkbox" class="switch" data-setting="pillOpenOnHover">
+        </label>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Handle height</span>
+            <span class="row-desc">Drag the handle up or down on any page to move it. Reset puts it back to the position chosen above.</span>
+          </span>
+          <button type="button" class="btn is-sm" id="btn-reset-handle">Reset position</button>
+        </div>
+
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">Hide on these sites</span>
+            <span class="row-desc">One site per line, for example <code>mybank.com</code>. Subdomains are included.</span>
+          </span>
+          <textarea class="input" style="width: 260px; height: 72px;" data-setting="pillHiddenSites" spellcheck="false" placeholder="mybank.com&#10;game.example"></textarea>
+        </div>
+
+        <label class="row">
+          <span class="row-text">
             <span class="row-title">Accent border</span>
             <span class="row-desc">A thin stripe in the workspace color across the top of every page (visible when window is a saved workspace).</span>
           </span>
-          <input type="checkbox" class="switch" data-setting="accentBorder">
+          <input type="checkbox" class="switch" data-setting="accentBorder" data-needs-sites>
         </label>
       </section>
 
@@ -174,7 +217,14 @@
 
       <section class="card" aria-labelledby="h-transfer">
         <h2 id="h-transfer">Export &amp; import</h2>
-        <p class="card-desc">Move workspaces to another profile or device as a JSON file.</p>
+        <p class="card-desc">Move workspaces to another profile or device as a JSON file. Add a passphrase to encrypt the file (AES-256-GCM); the same passphrase is needed to import it.</p>
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">File passphrase (optional)</span>
+            <span class="row-desc">At least 8 characters. Used only in this page and never stored.</span>
+          </span>
+          <input type="password" class="input" style="width: 260px;" id="transfer-passphrase" autocomplete="off" placeholder="Leave empty for a plain file">
+        </div>
         <div class="actions">
           <button type="button" class="btn is-primary" id="btn-export">Export workspaces</button>
           <label class="btn" for="file-import">Import from file…</label>

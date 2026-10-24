@@ -2,7 +2,7 @@
  * Data shapes, validation, and migration for Tabroost
  */
 
-import { SCHEMA_VERSION, DEFAULT_SETTINGS, SETTING_KEYS } from './constants.js';
+import { SCHEMA_VERSION, DEFAULT_SETTINGS, SETTING_KEYS, SYNC_PAYLOAD_VERSION } from './constants.js';
 import { DEFAULT_COLOR, isValidColor } from './colors.js';
 import { generateId, NEW_TAB_URL } from './utils.js';
 
@@ -160,11 +160,54 @@ export function sanitizeSettings(raw = {}) {
   if (!['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center-left', 'center-right'].includes(settings.pillPosition)) {
     settings.pillPosition = 'top-left';
   }
+  if (!['handle', 'dot'].includes(settings.pillStyle)) settings.pillStyle = 'handle';
+  if (settings.pillOffsetY !== null && !(Number.isFinite(settings.pillOffsetY))) settings.pillOffsetY = null;
+  if (settings.pillOffsetY !== null) settings.pillOffsetY = Math.min(100, Math.max(0, settings.pillOffsetY));
+  settings.pillHiddenSites = settings.pillHiddenSites.slice(0, 2000);
   if (!['compact', 'medium', 'large', 'xlarge'].includes(settings.pillSize)) {
     settings.pillSize = 'medium';
   }
-  settings.showPagePill = true;
   return settings;
+}
+
+/**
+ * Deleted workspace ids -> deletion time. Lets sync tell "deleted here" from "never had it".
+ */
+export function sanitizeTombstones(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [id, at] of Object.entries(raw)) {
+    if (typeof at === 'number' && Number.isFinite(at) && at > 0) out[String(id)] = at;
+  }
+  return out;
+}
+
+/**
+ * Validate and clean a payload decrypted from the cloud. Anything malformed throws,
+ * so a corrupt or hostile remote can never reach storage unsanitized.
+ */
+export function sanitizeSyncPayload(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Remote sync payload is not an object');
+  }
+  if (raw.schemaVersion !== undefined && (!Number.isInteger(raw.schemaVersion) || raw.schemaVersion > SYNC_PAYLOAD_VERSION)) {
+    throw new Error('Remote data was written by a newer Tabroost. Update this device first.');
+  }
+  if (raw.workspaces !== undefined && (typeof raw.workspaces !== 'object' || raw.workspaces === null || Array.isArray(raw.workspaces))) {
+    throw new Error('Remote sync payload has invalid workspaces');
+  }
+
+  const workspaces = {};
+  for (const [id, ws] of Object.entries(raw.workspaces || {})) {
+    if (ws && typeof ws === 'object' && ws.name) {
+      const clean = sanitizeWorkspace(ws, id);
+      workspaces[clean.id] = clean;
+    }
+  }
+  const workspaceOrder = Array.isArray(raw.workspaceOrder)
+    ? [...new Set(raw.workspaceOrder.map(String))].filter((id) => workspaces[id])
+    : [];
+  return { workspaces, workspaceOrder, tombstones: sanitizeTombstones(raw.tombstones) };
 }
 
 /**
@@ -177,7 +220,8 @@ export function migrateStorageData(raw = {}) {
     schemaVersion: SCHEMA_VERSION,
     settings: sanitizeSettings(data.settings),
     workspaces: {},
-    workspaceOrder: []
+    workspaceOrder: [],
+    tombstones: sanitizeTombstones(data.tombstones)
   };
 
   if (data.workspaces && typeof data.workspaces === 'object') {

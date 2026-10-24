@@ -5,6 +5,8 @@
 import { MESSAGE_TYPES } from '../shared/constants.js';
 import { sendBackgroundMessage } from '../shared/messages.js';
 import { pluralize, timeAgo, escapeHtml } from '../shared/utils.js';
+import { encryptPayload, decryptPayload, FORMAT as ENCRYPTED_FORMAT } from '../shared/crypto.js';
+import { SYNC_MIN_PASSPHRASE_LENGTH } from '../shared/constants.js';
 import { ICONS } from '../sidepanel/components/icons.js';
 import { confirmDialog } from '../sidepanel/components/dialogs.js';
 import { toast, toastError } from '../sidepanel/components/toast.js';
@@ -29,6 +31,7 @@ const COMMAND_LABELS = {
 class OptionsApp {
   constructor() {
     this.inputs = [...document.querySelectorAll('[data-setting]')];
+    this.secretInputs = [...document.querySelectorAll('[data-secret]')];
     this.settings = {};
   }
 
@@ -74,6 +77,22 @@ class OptionsApp {
   }
 
   bindEvents() {
+    for (const input of this.secretInputs) {
+      input.addEventListener('change', async () => {
+        const field = input.dataset.secret;
+        const value = input.value;
+        if (!value) return;
+        try {
+          await sendBackgroundMessage(MESSAGE_TYPES.UPDATE_SYNC_CONFIG, { secrets: { [field]: value } });
+          input.value = '';
+          toast('Saved', { type: 'success', duration: 1500 });
+          await this.renderSyncStatus();
+        } catch (err) {
+          toastError(err, 'Could not save');
+        }
+      });
+    }
+
     for (const input of this.inputs) {
       input.addEventListener('change', async () => {
         const key = input.dataset.setting;
@@ -99,6 +118,7 @@ class OptionsApp {
       });
     }
 
+    document.getElementById('btn-reset-handle')?.addEventListener('click', () => this.save({ pillOffsetY: null }));
     document.getElementById('btn-export').addEventListener('click', () => this.exportJson());
     document.getElementById('file-import').addEventListener('change', (e) => this.importJson(e));
     document.getElementById('btn-reset').addEventListener('click', () => this.resetAll());
@@ -148,8 +168,16 @@ class OptionsApp {
     if (!statusEl) return;
     try {
       const status = await sendBackgroundMessage(MESSAGE_TYPES.GET_SYNC_STATUS);
+      for (const input of this.secretInputs) {
+        const has = input.dataset.secret === 'token' ? status.hasToken : status.hasPassphrase;
+        input.placeholder = has ? '•••••••• saved. Type to replace' : input.dataset.secret === 'token' ? 'ghp_...' : 'At least 8 characters';
+      }
       if (!status.enabled) {
         statusEl.textContent = 'Sync is currently off';
+      } else if (!status.hasPassphrase || !status.hasToken) {
+        statusEl.textContent = !status.hasPassphrase ? 'Locked: enter your passphrase to sync' : 'Add a GitHub token to sync';
+      } else if (status.retryAt) {
+        statusEl.textContent = `Rate limited or failing. Next automatic retry ${new Date(status.retryAt).toLocaleTimeString()}`;
       } else if (status.lastSyncedAt) {
         statusEl.textContent = `Last synced ${timeAgo(status.lastSyncedAt)}`;
       } else {
@@ -230,11 +258,17 @@ class OptionsApp {
 
   async exportJson() {
     try {
-      const data = await sendBackgroundMessage(MESSAGE_TYPES.EXPORT);
+      let data = await sendBackgroundMessage(MESSAGE_TYPES.EXPORT);
+      const passphrase = document.getElementById('transfer-passphrase')?.value || '';
+      if (passphrase && passphrase.length < SYNC_MIN_PASSPHRASE_LENGTH) {
+        toast(`Passphrase must be at least ${SYNC_MIN_PASSPHRASE_LENGTH} characters`, { type: 'info' });
+        return;
+      }
+      if (passphrase) data = await encryptPayload(data, passphrase);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const date = new Date().toISOString().slice(0, 10);
-      const filename = `tabroost-workspaces-${date}.json`;
+      const filename = `tabroost-workspaces-${date}${passphrase ? '.encrypted' : ''}.json`;
 
       const a = document.createElement('a');
       a.href = url;
@@ -255,7 +289,15 @@ class OptionsApp {
 
     try {
       const text = await file.text();
-      const payload = JSON.parse(text);
+      let payload = JSON.parse(text);
+      if (payload?.format === ENCRYPTED_FORMAT) {
+        const passphrase = document.getElementById('transfer-passphrase')?.value || '';
+        if (!passphrase) {
+          toast('This file is encrypted. Enter its passphrase above, then choose the file again.', { type: 'info' });
+          return;
+        }
+        payload = await decryptPayload(payload, passphrase);
+      }
       const mode = document.querySelector('input[name="import-mode"]:checked')?.value || 'merge';
 
       if (mode === 'replace') {

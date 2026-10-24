@@ -10,12 +10,12 @@
 
 (() => {
   if (window.top !== window.self) return;
-  if (window.__workspacesIndicator) {
-    window.__workspacesIndicator.refresh();
+  if (window.__tabroostIndicator) {
+    window.__tabroostIndicator.refresh();
     return;
   }
 
-  const HOST_ID = 'workspaces-ext-indicator';
+  const HOST_ID = 'tabroost-ext-indicator';
   const COLORS = {
     blue: '#1a73e8', cyan: '#007b83', green: '#188038', yellow: '#e8a200', orange: '#e8710a',
     red: '#d93025', pink: '#d01884', purple: '#a142f4', grey: '#5f6368'
@@ -27,6 +27,11 @@
   let lastKey = '';
   let currentPosition = 'top-left';
   let currentSize = 'medium';
+  let currentStyle = 'handle';
+  let currentOffsetY = null;
+  let hoverTimer = null;
+  let justDragged = false;
+  let hoverOpen = false;
 
   const alive = () => {
     try {
@@ -112,7 +117,40 @@
         .pill.size-xlarge .dot { width: 22px; height: 22px; }
         .pill.size-xlarge .dot.unsaved { border: 3px dashed #e8eaed; background: rgba(255,255,255,.15); }
 
+        /* Edge handle: a thin strip hugging the screen edge; the panel slides out from it */
+        .handle {
+          position: fixed; display: none; pointer-events: auto; border: 0; padding: 0; cursor: pointer;
+          background: var(--c, #9aa0a6); opacity: .4; z-index: 2147483647;
+          transition: opacity .15s ease, width .15s ease, box-shadow .15s ease;
+        }
+        .handle:hover, .handle:focus-visible, .handle.open { opacity: 1; outline: none; box-shadow: 0 0 10px var(--c, #9aa0a6); }
+        .handle.unsaved {
+          background: repeating-linear-gradient(180deg, #9aa0a6 0 5px, transparent 5px 9px);
+        }
+        .handle.side-left { left: 0; border-radius: 0 6px 6px 0; }
+        .handle.side-right { right: 0; border-radius: 6px 0 0 6px; }
+        .handle.v-top { top: 14px; }
+        .handle.v-bottom { bottom: 14px; }
+        .handle.v-free { margin-top: calc(var(--h) / -2); }
+        .handle { touch-action: none; }
+        .handle.v-center { top: 50%; margin-top: calc(var(--h) / -2); }
+        .handle.size-compact { --h: 36px; width: 4px; height: var(--h); }
+        .handle.size-medium { --h: 56px; width: 5px; height: var(--h); }
+        .handle.size-large { --h: 76px; width: 6px; height: var(--h); }
+        .handle.size-xlarge { --h: 100px; width: 8px; height: var(--h); }
+        .handle:hover, .handle:focus-visible, .handle.open { width: 10px; }
+
         /* Flyout iframe positioning */
+        /* Popup card that opens beside the handle, not a full-height sidebar */
+        iframe.edge.side-left { left: 18px; right: auto; transform-origin: left center; animation: pop-left .16s cubic-bezier(.2,.9,.3,1); }
+        iframe.edge.side-right { right: 18px; left: auto; transform-origin: right center; animation: pop-right .16s cubic-bezier(.2,.9,.3,1); }
+        iframe.edge.v-top { top: 14px; bottom: auto; }
+        iframe.edge.v-bottom { bottom: 14px; top: auto; }
+        iframe.edge.v-center { top: 50%; bottom: auto; transform: translateY(-50%); }
+        @keyframes pop-left { from { opacity: 0; translate: -12px 0; scale: .97; } }
+        @keyframes pop-right { from { opacity: 0; translate: 12px 0; scale: .97; } }
+        @media (prefers-reduced-motion: reduce) { iframe.edge { animation: none; } }
+
         iframe {
           position: fixed; width: 360px; max-width: calc(100vw - 28px);
           height: min(560px, calc(100vh - 72px)); border: 0; border-radius: 12px;
@@ -131,17 +169,65 @@
         @media (prefers-reduced-motion: reduce) { .pill, .chev, iframe { transition: none; animation: none; } }
       </style>
       <div class="border"></div>
+      <button class="handle side-left v-top size-medium" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Tabroost workspaces"></button>
       <button class="pill size-medium pos-top-left" type="button" aria-haspopup="dialog" aria-expanded="false">
         <span class="dot"></span><span class="name"></span>
         <svg class="chev" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     `;
-    shadow.querySelector('.pill').addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      toggleFlyout();
+    for (const el of shadow.querySelectorAll('.pill, .handle')) {
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (justDragged) {
+          justDragged = false;
+          return;
+        }
+        toggleFlyout();
+      });
+    }
+
+    // Handle: drag up and down to reposition, optionally open when hovered
+    const handleEl = shadow.querySelector('.handle');
+    let drag = null;
+    handleEl.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      drag = { startY: e.clientY, moved: false };
+      handleEl.setPointerCapture(e.pointerId);
     });
+    handleEl.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      if (!drag.moved && Math.abs(e.clientY - drag.startY) < 5) return;
+      drag.moved = true;
+      clearTimeout(hoverTimer);
+      const pct = Math.min(95, Math.max(5, (e.clientY / window.innerHeight) * 100));
+      handleEl.classList.remove('v-top', 'v-center', 'v-bottom');
+      handleEl.classList.add('v-free');
+      handleEl.style.top = `${pct}%`;
+      drag.pct = pct;
+    });
+    const endDrag = () => {
+      if (drag?.moved && alive()) {
+        justDragged = true;
+        setTimeout(() => { justDragged = false; }, 300);
+        chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillOffsetY: Math.round(drag.pct) } }).catch(() => {});
+      }
+      drag = null;
+    };
+    handleEl.addEventListener('pointerup', endDrag);
+    handleEl.addEventListener('pointercancel', endDrag);
+    handleEl.addEventListener('mouseenter', () => {
+      if (!hoverOpen || flyout || drag) return;
+      hoverTimer = setTimeout(() => { if (!flyout && !drag) openFlyout(); }, 250);
+    });
+    handleEl.addEventListener('mouseleave', () => clearTimeout(hoverTimer));
     (document.body || document.documentElement).appendChild(host);
+  }
+
+  /** True when this site is on the user's "never show here" list */
+  function siteHidden(data) {
+    const host = location.hostname.toLowerCase().replace(/^www\./, '');
+    return (data?.hiddenSites || []).some((s) => host === s || host.endsWith('.' + s));
   }
 
   function render(data) {
@@ -152,9 +238,22 @@
     currentPosition = pos;
     currentSize = size;
 
+    const style = data?.pillStyle === 'dot' ? 'dot' : 'handle';
+    if (style !== currentStyle) closeFlyout();
+    currentStyle = style;
+    hoverOpen = Boolean(data?.openOnHover);
+
     const key = JSON.stringify({ data, pos, size });
     if (key === lastKey && host?.isConnected) return;
     lastKey = key;
+
+    if (siteHidden(data) || (!data?.showPill && !data?.showBorder)) {
+      closeFlyout();
+      host?.remove();
+      host = null;
+      shadow = null;
+      return;
+    }
 
     ensureHost();
     const color = isWorkspace ? (COLORS[ws?.color] || '#9aa0a6') : '#9aa0a6';
@@ -163,7 +262,28 @@
     border.style.background = color;
 
     const pill = shadow.querySelector('.pill');
-    pill.style.display = 'flex'; // Permanent indicator
+    pill.style.display = data?.showPill && style === 'dot' ? 'flex' : 'none';
+    if (!data?.showPill) closeFlyout();
+
+    // Edge handle (default): side + vertical anchor come from the position setting
+    const handle = shadow.querySelector('.handle');
+    const side = pos.endsWith('right') ? 'right' : 'left';
+    const vertical = pos.startsWith('bottom') ? 'bottom' : pos.startsWith('center') ? 'center' : 'top';
+    handle.style.display = data?.showPill && style === 'handle' ? 'block' : 'none';
+    handle.className = `handle side-${side} v-${vertical} size-${size}${isWorkspace ? '' : ' unsaved'}${flyout ? ' open' : ''}`;
+    currentOffsetY = typeof data?.offsetY === 'number' ? data.offsetY : null;
+    if (currentOffsetY !== null) {
+      handle.classList.remove('v-top', 'v-center', 'v-bottom');
+      handle.classList.add('v-free');
+      handle.style.top = `${currentOffsetY}%`;
+    } else {
+      handle.style.top = '';
+    }
+    handle.style.setProperty('--c', color);
+    handle.title = isWorkspace
+      ? `Workspace: ${ws.name} (click to open the panel)`
+      : 'Unsaved window (click to save as a workspace)';
+    handle.setAttribute('aria-label', handle.title);
 
     // Apply positioning and size classes
     pill.className = `pill pos-${pos} size-${size}${isWorkspace ? '' : ' unsaved'}${flyout ? ' open' : ''}`;
@@ -198,13 +318,22 @@
   function openFlyout() {
     if (!alive() || !shadow) return;
     flyout = document.createElement('iframe');
-    flyout.className = `pos-${currentPosition}`;
+    const edgeSide = currentPosition.endsWith('right') ? 'right' : 'left';
+    const edgeV = currentOffsetY !== null ? 'free' : currentPosition.startsWith('bottom') ? 'bottom' : currentPosition.startsWith('center') ? 'center' : 'top';
+    flyout.className = currentStyle === 'handle' ? `edge side-${edgeSide} v-${edgeV}` : `pos-${currentPosition}`;
+    if (currentStyle === 'handle' && currentOffsetY !== null) {
+      // Line the popup up with the dragged handle, kept fully on screen
+      const height = Math.min(560, window.innerHeight - 72);
+      const top = Math.max(14, Math.min(window.innerHeight - height - 14, (currentOffsetY / 100) * window.innerHeight - 28));
+      flyout.style.top = `${top}px`;
+    }
     flyout.src = chrome.runtime.getURL('src/sidepanel/panel.html?mode=flyout');
     flyout.title = 'Tabroost';
     shadow.appendChild(flyout);
-    const pill = shadow.querySelector('.pill');
-    pill.classList.add('open');
-    pill.setAttribute('aria-expanded', 'true');
+    for (const el of shadow.querySelectorAll('.pill, .handle')) {
+      el.classList.add('open');
+      el.setAttribute('aria-expanded', 'true');
+    }
     setTimeout(() => document.addEventListener('pointerdown', onOutside, true), 0);
   }
 
@@ -214,9 +343,10 @@
       flyout.remove();
       flyout = null;
     }
-    const pill = shadow?.querySelector('.pill');
-    pill?.classList.remove('open');
-    pill?.setAttribute('aria-expanded', 'false');
+    for (const el of shadow?.querySelectorAll('.pill, .handle') || []) {
+      el.classList.remove('open');
+      el.setAttribute('aria-expanded', 'false');
+    }
   }
 
   function onOutside(e) {
@@ -239,7 +369,7 @@
   }
 
   window.addEventListener('message', (e) => {
-    if (flyout && e.source === flyout.contentWindow && e.data?.type === 'CLOSE_WORKSPACES_FLYOUT') {
+    if (flyout && e.source === flyout.contentWindow && e.data?.type === 'CLOSE_TABROOST_FLYOUT') {
       closeFlyout();
     }
   });
@@ -253,6 +383,6 @@
     if (msg?.type === 'INDICATOR_REFRESH') refresh();
   });
 
-  window.__workspacesIndicator = { refresh };
+  window.__tabroostIndicator = { refresh };
   refresh();
 })();

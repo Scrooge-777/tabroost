@@ -1,6 +1,7 @@
 /**
  * On-page features (workspace pill button + accent border).
- * The content script is declared statically in manifest.json for permanent operation.
+ * Opt-in: site access is an optional permission, and the content script is only
+ * registered while a feature is on and the permission is granted.
  */
 
 import { PAGE_SCRIPT_ID, MESSAGE_TYPES } from '../shared/constants.js';
@@ -9,17 +10,43 @@ import { windowRegistry } from './window-registry.js';
 
 export const PAGE_ORIGINS = ['http://*/*', 'https://*/*'];
 
+/** "a.com, b.org" or one per line -> ['a.com', 'b.org'] (lowercase, no scheme or path) */
+export function parseHiddenSites(raw = '') {
+  return String(raw)
+    .split(/[\s,;]+/)
+    .map((s) => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0])
+    .filter(Boolean);
+}
+
 export const pageFeatures = {
+  async hasSiteAccess() {
+    if (!chrome.permissions?.contains) return false;
+    return chrome.permissions.contains({ origins: PAGE_ORIGINS }).catch(() => false);
+  },
+
   /**
-   * Sync page features and unregister any legacy dynamic content scripts
+   * Register or remove the content script to match settings and granted permission
    */
   async sync() {
+    const { settings } = await workspaceManager.loadState();
+    const wanted = Boolean(settings.showPagePill || settings.accentBorder) && (await this.hasSiteAccess());
+
     if (chrome.scripting?.unregisterContentScripts) {
       await chrome.scripting.unregisterContentScripts({ ids: [PAGE_SCRIPT_ID] }).catch(() => {});
     }
-    await this.injectIntoOpenTabs().catch(() => {});
+    if (wanted && chrome.scripting?.registerContentScripts) {
+      await chrome.scripting.registerContentScripts([{
+        id: PAGE_SCRIPT_ID,
+        matches: PAGE_ORIGINS,
+        js: ['src/content/page-indicator.js'],
+        runAt: 'document_idle',
+        allFrames: false,
+        persistAcrossSessions: true
+      }]).catch((err) => console.warn('pageFeatures: could not register content script', err));
+      await this.injectIntoOpenTabs().catch(() => {});
+    }
     await this.refreshAll();
-    return { registered: true };
+    return { registered: wanted };
   },
 
   /**
@@ -41,9 +68,13 @@ export const pageFeatures = {
     const wsId = windowId ? await windowRegistry.getWorkspaceForWindow(windowId) : null;
     const ws = wsId ? state.workspaces[wsId] : null;
     return {
-      showPill: true,
+      showPill: Boolean(state.settings?.showPagePill),
       pillPosition: state.settings?.pillPosition || 'top-left',
       pillSize: state.settings?.pillSize || 'medium',
+      pillStyle: state.settings?.pillStyle === 'dot' ? 'dot' : 'handle',
+      openOnHover: Boolean(state.settings?.pillOpenOnHover),
+      offsetY: state.settings?.pillOffsetY ?? null,
+      hiddenSites: parseHiddenSites(state.settings?.pillHiddenSites),
       showBorder: Boolean(state.settings?.accentBorder),
       workspace: ws ? { id: ws.id, name: ws.name, color: ws.color, icon: ws.icon } : null
     };

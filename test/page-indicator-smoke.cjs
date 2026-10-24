@@ -50,7 +50,7 @@ async function pixelAt(page, x, y) {
     executablePath: BROWSER,
     headless: false,
     viewport: { width: 900, height: 650 },
-    args: ['--headless=new', `--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--no-first-run']
+    args: [...(process.env.CI ? [] : ['--headless=new']), `--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--no-first-run', ...(process.env.CI ? ['--no-sandbox'] : [])]
   });
 
   const errors = [];
@@ -78,7 +78,7 @@ async function pixelAt(page, x, y) {
       await chrome.runtime.sendMessage({ type: 'CREATE_FROM_CURRENT_WINDOW', windowId: win.id, name: 'Research', color: 'purple', icon: '📚' });
     });
 
-    const hasHost = () => page.evaluate(() => Boolean(document.getElementById('workspaces-ext-indicator')));
+    const hasHost = () => page.evaluate(() => Boolean(document.getElementById('tabroost-ext-indicator')));
 
     await page.bringToFront();
     await page.waitForTimeout(800);
@@ -91,7 +91,7 @@ async function pixelAt(page, x, y) {
     check('page script registered', registered.includes('workspaces-page-indicator'), JSON.stringify(registered));
 
     await page.bringToFront();
-    await page.waitForFunction(() => document.getElementById('workspaces-ext-indicator'), null, { timeout: 5000 }).catch(() => {});
+    await page.waitForFunction(() => document.getElementById('tabroost-ext-indicator'), null, { timeout: 5000 }).catch(() => {});
     check('injected into the already-open page', await hasHost());
 
     await page.reload();
@@ -100,20 +100,22 @@ async function pixelAt(page, x, y) {
     await page.screenshot({ path: path.join(OUT, 'p1-pill-and-border.png') });
 
     // Closed shadow root: probe what is actually on screen at the pill / border positions
-    const pillHit = await page.evaluate(() => document.elementFromPoint(18, 19) === document.getElementById('workspaces-ext-indicator'));
-    check('pill is on screen (top-left)', pillHit);
+    const handleHit = await page.evaluate(() => document.elementFromPoint(2, 40) === document.getElementById('tabroost-ext-indicator'));
+    check('edge handle is on screen (left edge)', handleHit);
+    const contentHit = await page.evaluate(() => document.elementFromPoint(40, 40) !== document.getElementById('tabroost-ext-indicator'));
+    check('page content next to the handle stays clickable', contentHit);
     // The border is click-through, so read the painted pixel instead (page header is #eee)
     const [r, g, b] = await pixelAt(page, 450, 1);
     check('accent border is painted in the workspace color (top edge)', !(r === 238 && g === 238 && b === 238), `rgb(${r},${g},${b})`);
 
-    await page.mouse.move(18, 19);
+    await page.mouse.move(2, 40);
     await page.waitForTimeout(400);
-    await page.screenshot({ path: path.join(OUT, 'p1b-pill-hover.png'), clip: { x: 0, y: 0, width: 300, height: 60 } });
+    await page.screenshot({ path: path.join(OUT, 'p1b-handle-hover.png'), clip: { x: 0, y: 0, width: 300, height: 120 } });
 
-    await page.mouse.click(18, 19);
+    await page.mouse.click(2, 40);
     await page.waitForTimeout(1500);
     const flyoutFrame = page.frames().find((f) => f.url().includes('panel.html?mode=flyout'));
-    check('clicking the pill opens the switcher flyout', Boolean(flyoutFrame));
+    check('clicking the handle opens the slide-out panel', Boolean(flyoutFrame));
     if (flyoutFrame) {
       await flyoutFrame.waitForSelector('.window-bar', { timeout: 5000 }).catch(() => {});
       const title = await flyoutFrame.evaluate(() => document.querySelector('.wb-title')?.textContent).catch(() => null);
@@ -124,6 +126,54 @@ async function pixelAt(page, x, y) {
       await page.waitForTimeout(400);
       check('flyout closes on outside click', !page.frames().some((f) => f.url().includes('mode=flyout')));
     }
+
+    // Dot style still works
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillStyle: 'dot' } }));
+    await page.bringToFront();
+    await page.waitForTimeout(1200);
+    const dotHit = await page.evaluate(() => document.elementFromPoint(18, 19) === document.getElementById('tabroost-ext-indicator'));
+    check('dot style: floating dot is on screen (top-left)', dotHit);
+    await page.screenshot({ path: path.join(OUT, 'p1c-dot-style.png') });
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillStyle: 'handle' } }));
+    await page.bringToFront();
+    await page.waitForTimeout(800);
+
+    // Hide on listed sites
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillHiddenSites: 'https://www.127.0.0.1/path\nother.example' } }));
+    await page.bringToFront();
+    await page.waitForTimeout(1200);
+    check('indicator hidden on a listed site', !(await hasHost()));
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillHiddenSites: '' } }));
+    await page.bringToFront();
+    await page.waitForTimeout(1200);
+    check('indicator back once the site is unlisted', await hasHost());
+
+    // Drag the handle down; the position is saved
+    await page.mouse.move(2, 40);
+    await page.mouse.down();
+    await page.mouse.move(2, 150, { steps: 4 });
+    await page.mouse.move(2, 300, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(800);
+    const offset = await ui.evaluate(async () => (await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' })).data.pillOffsetY);
+    check('dragging the handle saves its height', typeof offset === 'number' && offset > 35 && offset < 60, String(offset));
+    check('drag did not open the popup', !page.frames().some((f) => f.url().includes('mode=flyout')));
+    const movedHit = await page.evaluate(() => document.elementFromPoint(2, 300) === document.getElementById('tabroost-ext-indicator'));
+    check('handle sits at the new height', movedHit);
+
+    // Open on hover
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillOpenOnHover: true } }));
+    await page.bringToFront();
+    await page.waitForTimeout(800);
+    await page.mouse.move(600, 500);
+    await page.mouse.move(2, 300, { steps: 3 });
+    await page.waitForTimeout(1500);
+    check('hovering the handle opens the popup', page.frames().some((f) => f.url().includes('mode=flyout')));
+    await page.mouse.click(700, 600);
+    await page.waitForTimeout(400);
+    await ui.evaluate(() => chrome.runtime.sendMessage({ type: 'UPDATE_SETTINGS', settings: { pillOpenOnHover: false, pillOffsetY: null } }));
+    await page.bringToFront();
+    await page.waitForTimeout(800);
 
     // Rename -> pill text follows
     await ui.evaluate(async () => {

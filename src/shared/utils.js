@@ -164,19 +164,24 @@ export function isNewTabUrl(url = '') {
 
 export const NEW_TAB_URL = 'chrome://newtab/';
 
+const RESTORABLE_SCHEMES = new Set(['http:', 'https:', 'file:', 'chrome:', 'chrome-extension:', 'about:']);
+
 /**
  * Sanitize URL for window/tab restoration.
  * brave:// pages are aliases of chrome:// pages; tabs.create only accepts the latter.
- * Schemes extensions can never open are replaced with the new tab page.
+ * Only an allowlist of schemes is restored; anything else is replaced with the new tab page.
  */
 export function sanitizeRestoreUrl(url) {
-  if (!url || isNewTabUrl(url)) return NEW_TAB_URL;
-  const lower = url.toLowerCase();
-  if (lower.startsWith('brave://')) return 'chrome://' + url.slice('brave://'.length);
-  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('view-source:')) {
-    return NEW_TAB_URL;
-  }
-  return url;
+  // Browsers ignore leading whitespace and control characters when parsing a scheme
+  // eslint-disable-next-line no-control-regex
+  const trimmed = String(url ?? '').replace(/^[\s\x00-\x1f]+/, '');
+  if (!trimmed || isNewTabUrl(trimmed)) return NEW_TAB_URL;
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('brave://')) return 'chrome://' + trimmed.slice('brave://'.length);
+
+  const scheme = /^([a-z][a-z0-9+.-]*:)/.exec(lower);
+  if (!scheme || !RESTORABLE_SCHEMES.has(scheme[1])) return NEW_TAB_URL;
+  return trimmed;
 }
 
 /**

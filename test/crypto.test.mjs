@@ -2,7 +2,7 @@
  * Unit tests for client-side Web Crypto PBKDF2 + AES-GCM engine
  */
 
-import { encryptPayload, decryptPayload, deriveKey } from '../src/shared/crypto.js';
+import { encryptPayload, decryptPayload } from '../src/shared/crypto.js';
 
 let passed = 0;
 let failed = 0;
@@ -31,7 +31,7 @@ async function runTests() {
     const passphrase = 'SuperSecretUserPassphrase!123';
 
     const envelope = await encryptPayload(payload, passphrase);
-    assert(envelope.version === 1, 'envelope contains version 1');
+    assert(envelope.version === 2, 'envelope contains version 2');
     assert(envelope.format === 'tabroost-e2ee-aes-gcm', 'envelope specifies correct format');
     assert(typeof envelope.ciphertext === 'string' && envelope.ciphertext.length > 0, 'ciphertext is non-empty base64 string');
     assert(typeof envelope.salt === 'string', 'salt is base64 string');

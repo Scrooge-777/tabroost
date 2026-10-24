@@ -5,7 +5,7 @@
 
 import { renderColorPicker } from './color-picker.js';
 import { ICONS } from './icons.js';
-import { escapeHtml, pluralize } from '../../shared/utils.js';
+import { escapeHtml, pluralize, timeAgo } from '../../shared/utils.js';
 import { applyColorVars } from '../../shared/colors.js';
 
 const EMOJI_PRESETS = ['💼', '📚', '🎓', '💻', '🚀', '🎨', '🏠', '🛒', '💰', '✈️', '🎮', '🎵', '🧪', '📝', '❤️', '⭐'];
@@ -164,5 +164,62 @@ export function confirmDialog({
     });
     dialog.showModal();
     dialog.querySelector('button[type="submit"]').focus();
+  });
+}
+
+const REASON_LABELS = {
+  auto: 'Automatic',
+  manual: 'Saved by you',
+  closed: 'Window closed',
+  'before-restore': 'Before a restore'
+};
+
+/**
+ * Version history of one workspace.
+ * Resolves to { action: 'restore', versionId } | { action: 'save' } | null when closed.
+ */
+export function openHistoryDialog({ name, versions }) {
+  const rows = versions.map((v) => {
+    const change = v.first ? '' : ` · +${v.added} −${v.removed}`;
+    return `
+      <li class="history-row">
+        <div class="history-main">
+          <span class="history-time">${escapeHtml(timeAgo(v.at))}</span>
+          <span class="history-meta">${escapeHtml(pluralize(v.tabCount, 'tab'))}${change} · ${escapeHtml(REASON_LABELS[v.reason] || v.reason)}</span>
+        </div>
+        <button type="button" class="btn is-sm" data-restore="${escapeHtml(v.id)}">Restore</button>
+      </li>`;
+  }).join('');
+
+  const dialog = mountDialog(`
+    <form method="dialog" class="dialog-body">
+      <header class="dialog-head">
+        <h2>History · ${escapeHtml(name)}</h2>
+        <button type="button" class="icon-btn" data-cancel aria-label="Close">${ICONS.close}</button>
+      </header>
+      <p class="dialog-text">Versions are saved as you work (at most every 10 minutes), when the window closes, and before a restore. The newest 20 are kept.</p>
+      ${versions.length ? `<ul class="history-list">${rows}</ul>` : '<p class="muted">No versions yet. Use "Save version now" to create one.</p>'}
+      <footer class="dialog-actions">
+        <button type="button" class="btn" data-save>Save version now</button>
+        <button type="submit" value="done" class="btn is-primary">Done</button>
+      </footer>
+    </form>
+  `);
+
+  return new Promise((resolve) => {
+    let result = null;
+    dialog.querySelector('[data-cancel]').addEventListener('click', () => dialog.close('cancel'));
+    dialog.querySelector('[data-save]').addEventListener('click', () => {
+      result = { action: 'save' };
+      dialog.close('save');
+    });
+    dialog.querySelectorAll('[data-restore]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        result = { action: 'restore', versionId: btn.dataset.restore };
+        dialog.close('restore');
+      });
+    });
+    dialog.addEventListener('close', () => resolve(result));
+    dialog.showModal();
   });
 }
