@@ -160,6 +160,7 @@ export function sanitizeSettings(raw = {}) {
   if (!['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center-left', 'center-right'].includes(settings.pillPosition)) {
     settings.pillPosition = 'top-left';
   }
+  if (!['handle', 'dot'].includes(settings.pillStyle)) settings.pillStyle = 'handle';
   if (!['compact', 'medium', 'large', 'xlarge'].includes(settings.pillSize)) {
     settings.pillSize = 'medium';
   }

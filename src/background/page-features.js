@@ -63,6 +63,7 @@ export const pageFeatures = {
       showPill: Boolean(state.settings?.showPagePill),
       pillPosition: state.settings?.pillPosition || 'top-left',
       pillSize: state.settings?.pillSize || 'medium',
+      pillStyle: state.settings?.pillStyle === 'dot' ? 'dot' : 'handle',
       showBorder: Boolean(state.settings?.accentBorder),
       workspace: ws ? { id: ws.id, name: ws.name, color: ws.color, icon: ws.icon } : null
     };

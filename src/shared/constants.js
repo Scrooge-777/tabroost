@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS = {
   sortOrder: 'manual', // 'manual' | 'recent'
   showPagePill: false,
   pillPosition: 'top-left', // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center-left' | 'center-right'
+  pillStyle: 'handle', // 'handle' (edge strip + slide-out panel) | 'dot'
   pillSize: 'medium', // 'compact' | 'medium' | 'large' | 'xlarge'
   accentBorder: false,
   autoBackup: true,

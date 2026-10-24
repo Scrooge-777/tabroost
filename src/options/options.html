@@ -119,16 +119,27 @@
 
         <label class="row">
           <span class="row-text">
-            <span class="row-title">Workspace floating dot</span>
-            <span class="row-desc">Solid colored circle for saved workspaces; dashed ring for unsaved windows.</span>
+            <span class="row-title">Workspace side panel</span>
+            <span class="row-desc">A thin strip on the edge of web pages in the workspace color (dashed for unsaved windows). Click it to slide out your workspaces.</span>
           </span>
           <input type="checkbox" class="switch" data-setting="showPagePill" data-needs-sites>
         </label>
 
         <label class="row">
           <span class="row-text">
-            <span class="row-title">Dot screen position</span>
-            <span class="row-desc">Choose which corner or edge of the browser window the dot anchors to.</span>
+            <span class="row-title">Style</span>
+            <span class="row-desc">The edge handle stays out of the way of site menus and buttons. The dot is a small floating circle that expands on hover.</span>
+          </span>
+          <select class="select" data-setting="pillStyle">
+            <option value="handle">Edge handle + slide-out panel</option>
+            <option value="dot">Floating dot</option>
+          </select>
+        </label>
+
+        <label class="row">
+          <span class="row-text">
+            <span class="row-title">Screen position</span>
+            <span class="row-desc">Which side and height the handle sits at. The panel slides out from the same side.</span>
           </span>
           <select class="select" data-setting="pillPosition">
             <option value="top-left">Top Left (Default)</option>
