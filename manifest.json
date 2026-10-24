@@ -16,22 +16,9 @@
     "alarms",
     "scripting"
   ],
-  "host_permissions": [
+  "optional_host_permissions": [
     "http://*/*",
     "https://*/*"
-  ],
-  "content_scripts": [
-    {
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ],
-      "js": [
-        "src/content/page-indicator.js"
-      ],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
   ],
   "background": {
     "service_worker": "src/background/service-worker.js",

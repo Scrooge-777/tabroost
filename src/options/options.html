@@ -115,15 +115,15 @@
 
       <section class="card" aria-labelledby="h-pages">
         <h2 id="h-pages">On-page workspace indicator</h2>
-        <p class="card-desc">Permanent visual anchor across web pages to identify workspaces, switch contexts, or save new windows.</p>
+        <p class="card-desc">Optional. A visual anchor on web pages to identify workspaces, switch contexts, or save new windows. Turning it on asks the browser for access to all websites; turning everything off removes that access.</p>
 
-        <div class="row">
+        <label class="row">
           <span class="row-text">
             <span class="row-title">Workspace floating dot</span>
-            <span class="row-desc">Permanent on all web pages. Solid colored circle for active workspaces; dashed ring for unsaved windows.</span>
+            <span class="row-desc">Solid colored circle for saved workspaces; dashed ring for unsaved windows.</span>
           </span>
-          <span class="tag is-done" style="font-weight: 600; padding: 4px 10px;">Permanent</span>
-        </div>
+          <input type="checkbox" class="switch" data-setting="showPagePill" data-needs-sites>
+        </label>
 
         <label class="row">
           <span class="row-text">
@@ -158,7 +158,7 @@
             <span class="row-title">Accent border</span>
             <span class="row-desc">A thin stripe in the workspace color across the top of every page (visible when window is a saved workspace).</span>
           </span>
-          <input type="checkbox" class="switch" data-setting="accentBorder">
+          <input type="checkbox" class="switch" data-setting="accentBorder" data-needs-sites>
         </label>
       </section>
 
@@ -182,7 +182,14 @@
 
       <section class="card" aria-labelledby="h-transfer">
         <h2 id="h-transfer">Export &amp; import</h2>
-        <p class="card-desc">Move workspaces to another profile or device as a JSON file.</p>
+        <p class="card-desc">Move workspaces to another profile or device as a JSON file. Add a passphrase to encrypt the file (AES-256-GCM); the same passphrase is needed to import it.</p>
+        <div class="row">
+          <span class="row-text">
+            <span class="row-title">File passphrase (optional)</span>
+            <span class="row-desc">At least 8 characters. Used only in this page and never stored.</span>
+          </span>
+          <input type="password" class="input" style="width: 260px;" id="transfer-passphrase" autocomplete="off" placeholder="Leave empty for a plain file">
+        </div>
         <div class="actions">
           <button type="button" class="btn is-primary" id="btn-export">Export workspaces</button>
           <label class="btn" for="file-import">Import from file…</label>

@@ -50,7 +50,7 @@ async function pixelAt(page, x, y) {
     executablePath: BROWSER,
     headless: false,
     viewport: { width: 900, height: 650 },
-    args: ['--headless=new', `--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--no-first-run']
+    args: ['--headless=new', `--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--no-first-run', ...(process.env.CI ? ['--no-sandbox'] : [])]
   });
 
   const errors = [];

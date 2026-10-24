@@ -21,7 +21,7 @@ Off by default. If you turn it on, Tabroost encrypts your workspaces in the brow
 | `contextMenus` | Move tabs between workspaces from the right-click menu |
 | `alarms` | Scheduled backups and optional sync |
 | `scripting` | Inject the on-page workspace indicator into open tabs |
-| Access to `http://*/*` and `https://*/*` | Show the on-page workspace indicator |
+| Optional access to all websites | Only if you turn on the on-page indicator; removed when you turn it off |
 
 ## Contact
 

@@ -28,7 +28,7 @@ export const DEFAULT_SETTINGS = {
   closeWindowOnWorkspaceSwitch: false,
   confirmDelete: true,
   sortOrder: 'manual', // 'manual' | 'recent'
-  showPagePill: true,
+  showPagePill: false,
   pillPosition: 'top-left', // 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center-left' | 'center-right'
   pillSize: 'medium', // 'compact' | 'medium' | 'large' | 'xlarge'
   accentBorder: false,

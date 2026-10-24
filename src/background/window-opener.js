@@ -90,6 +90,7 @@ export const windowOpener = {
       await windowRegistry.bind(win.id, workspaceId);
 
       const createdTabs = [];
+      const lazyTabs = [];
       const firstLive = (win.tabs && win.tabs[0]) || (await chrome.tabs.query({ windowId: win.id }))[0];
       const isFirstActive = (tabs[0] === wantedActive);
 
@@ -97,10 +98,9 @@ export const windowOpener = {
         if (tabs[0].pinned) {
           await chrome.tabs.update(firstLive.id, { pinned: true }).catch(() => {});
         }
-        createdTabs.push({ id: firstLive.id, savedTabId: tabs[0].id, savedGroupId: tabs[0].groupId, active: isFirstActive });
-        if (state.settings?.lazyRestoreTabs !== false && !isFirstActive && !tabs[0].pinned && chrome.tabs?.discard) {
-          chrome.tabs.discard(firstLive.id).catch(() => {});
-        }
+        const entry = { id: firstLive.id, savedTabId: tabs[0].id, savedGroupId: tabs[0].groupId, active: isFirstActive };
+        createdTabs.push(entry);
+        if (state.settings?.lazyRestoreTabs !== false && !isFirstActive && !tabs[0].pinned) lazyTabs.push(entry);
       }
 
       for (let i = 1; i < tabs.length; i++) {
@@ -114,11 +114,9 @@ export const windowOpener = {
           active: false
         });
         if (created) {
-          createdTabs.push({ id: created.id, savedTabId: t.id, savedGroupId: t.groupId, active: isTargetActive });
-          // Lazy tab restoration: discard non-active background tabs to keep RAM low
-          if (state.settings?.lazyRestoreTabs !== false && !isTargetActive && !t.pinned && chrome.tabs?.discard) {
-            chrome.tabs.discard(created.id).catch(() => {});
-          }
+          const entry = { id: created.id, savedTabId: t.id, savedGroupId: t.groupId, active: isTargetActive };
+          createdTabs.push(entry);
+          if (state.settings?.lazyRestoreTabs !== false && !isTargetActive && !t.pinned) lazyTabs.push(entry);
         }
       }
 
@@ -129,6 +127,15 @@ export const windowOpener = {
 
       // Groups last: collapsed state can only apply to groups without the active tab
       const groupMap = await groupSync.restoreGroups(win.id, ws.groups || [], createdTabs);
+
+      // Lazy tab restoration: discard background tabs to keep RAM low. Done after grouping
+      // because discarding can replace a tab, giving it a new id.
+      if (chrome.tabs?.discard) {
+        for (const entry of lazyTabs) {
+          const replaced = await chrome.tabs.discard(entry.id).catch(() => null);
+          if (replaced && typeof replaced.id === 'number') entry.id = replaced.id;
+        }
+      }
 
       const tabMap = {};
       for (const c of createdTabs) {

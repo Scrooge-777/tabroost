@@ -152,9 +152,14 @@ export async function handleMessage(message, sender = {}) {
 
     case MESSAGE_TYPES.GET_CURRENT_STATUS: {
       const windowId = message.windowId || sender.tab?.windowId;
-      if (!windowId) return { workspaceId: null, isManaged: false };
-      const wsId = await windowRegistry.getWorkspaceForWindow(windowId);
-      return { workspaceId: wsId, isManaged: Boolean(wsId) };
+      const wsId = windowId ? await windowRegistry.getWorkspaceForWindow(windowId) : null;
+      return {
+        workspaceId: wsId,
+        currentWorkspaceId: wsId,
+        isManaged: Boolean(wsId),
+        bindings: await windowRegistry.getAllBindings(),
+        previousWorkspaceId: await windowRegistry.getPreviousWorkspaceId()
+      };
     }
 
     case MESSAGE_TYPES.GET_PAGE_INDICATOR:

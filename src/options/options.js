@@ -5,6 +5,8 @@
 import { MESSAGE_TYPES } from '../shared/constants.js';
 import { sendBackgroundMessage } from '../shared/messages.js';
 import { pluralize, timeAgo, escapeHtml } from '../shared/utils.js';
+import { encryptPayload, decryptPayload, FORMAT as ENCRYPTED_FORMAT } from '../shared/crypto.js';
+import { SYNC_MIN_PASSPHRASE_LENGTH } from '../shared/constants.js';
 import { ICONS } from '../sidepanel/components/icons.js';
 import { confirmDialog } from '../sidepanel/components/dialogs.js';
 import { toast, toastError } from '../sidepanel/components/toast.js';
@@ -255,11 +257,17 @@ class OptionsApp {
 
   async exportJson() {
     try {
-      const data = await sendBackgroundMessage(MESSAGE_TYPES.EXPORT);
+      let data = await sendBackgroundMessage(MESSAGE_TYPES.EXPORT);
+      const passphrase = document.getElementById('transfer-passphrase')?.value || '';
+      if (passphrase && passphrase.length < SYNC_MIN_PASSPHRASE_LENGTH) {
+        toast(`Passphrase must be at least ${SYNC_MIN_PASSPHRASE_LENGTH} characters`, { type: 'info' });
+        return;
+      }
+      if (passphrase) data = await encryptPayload(data, passphrase);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const date = new Date().toISOString().slice(0, 10);
-      const filename = `tabroost-workspaces-${date}.json`;
+      const filename = `tabroost-workspaces-${date}${passphrase ? '.encrypted' : ''}.json`;
 
       const a = document.createElement('a');
       a.href = url;
@@ -280,7 +288,15 @@ class OptionsApp {
 
     try {
       const text = await file.text();
-      const payload = JSON.parse(text);
+      let payload = JSON.parse(text);
+      if (payload?.format === ENCRYPTED_FORMAT) {
+        const passphrase = document.getElementById('transfer-passphrase')?.value || '';
+        if (!passphrase) {
+          toast('This file is encrypted. Enter its passphrase above, then choose the file again.', { type: 'info' });
+          return;
+        }
+        payload = await decryptPayload(payload, passphrase);
+      }
       const mode = document.querySelector('input[name="import-mode"]:checked')?.value || 'merge';
 
       if (mode === 'replace') {

@@ -33,7 +33,7 @@ const pages = {
     executablePath: BRAVE,
     headless: false,
     viewport: { width: 1200, height: 800 },
-    args: ['--headless=new', `--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-first-run']
+    args: ['--headless=new', `--disable-extensions-except=${EXT}`, `--load-extension=${EXT}`, '--no-first-run', ...(process.env.CI ? ['--no-sandbox'] : [])]
   });
 
   const errors = [];
@@ -139,7 +139,7 @@ const pages = {
   });
 
   await step('open closed workspace restores tabs + group in new window', async () => {
-    await panel.click('.ws-card:nth-child(2) .ws-name');
+    await panel.click('.ws-card:has-text("Coursework") .ws-name');
     await panel.waitForTimeout(2500);
     const result = await sw.evaluate(async () => {
       const wins = await chrome.windows.getAll({ populate: true });

@@ -498,14 +498,26 @@ await test('service worker loads; menus and badge follow the focused workspace',
   assert.match(chrome.action.badge.title, /Restored/);
 });
 
-await test('page indicator defaults to permanent with configurable position and size', async () => {
+await test('GET_CURRENT_STATUS gives the panel everything it reads', async () => {
+  const windowId = seedWindow(['https://status.test/a']).id;
+  const created = await send(MESSAGE_TYPES.CREATE_FROM_CURRENT_WINDOW, { windowId, name: 'Status check' });
+  const status = await send(MESSAGE_TYPES.GET_CURRENT_STATUS, { windowId });
+  assert.equal(status.currentWorkspaceId, created.id);
+  assert.equal(status.bindings[windowId], created.id);
+  assert.ok('previousWorkspaceId' in status);
+  const other = await send(MESSAGE_TYPES.GET_CURRENT_STATUS, { windowId: 987654 });
+  assert.equal(other.currentWorkspaceId, null);
+});
+
+await test('page indicator is opt-in with configurable position and size', async () => {
   const ind = await send('GET_PAGE_INDICATOR');
-  assert.equal(ind.showPill, true);
+  assert.equal(ind.showPill, false);
   assert.equal(ind.pillPosition, 'top-left');
   assert.equal(ind.pillSize, 'medium');
 
-  await send('UPDATE_SETTINGS', { settings: { pillPosition: 'bottom-right', pillSize: 'large' } });
+  await send('UPDATE_SETTINGS', { settings: { showPagePill: true, pillPosition: 'bottom-right', pillSize: 'large' } });
   const updated = await send('GET_PAGE_INDICATOR');
+  assert.equal(updated.showPill, true);
   assert.equal(updated.pillPosition, 'bottom-right');
   assert.equal(updated.pillSize, 'large');
 });

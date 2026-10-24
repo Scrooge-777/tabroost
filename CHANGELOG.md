@@ -3,6 +3,8 @@
 ## 1.2.0
 
 ### Fixed
+- The panel never knew which workspace the current window belongs to (`GET_CURRENT_STATUS` returned different field names than the panel read), so the "This window" bar always said "Unsaved window".
+- Restoring a workspace could lose its tab groups and live tab mapping: tabs were discarded before grouping, and discarding can give a tab a new id. Discarding now happens last.
 - Cloud sync no longer fails: it called `saveState` and `saveSettings`, which did not exist.
 - Deleting a workspace now records a tombstone, so sync no longer brings deleted workspaces back. Undo clears it.
 - Settings changed while a sync is running are no longer overwritten.
@@ -19,6 +21,7 @@
 - The side panel page uses a dynamic URL so websites cannot guess it.
 
 ### Added
+- Optional passphrase-encrypted export and import files.
 - Request timeouts, GitHub rate-limit handling and exponential backoff for background sync.
 - Sync lock that survives service worker restarts.
 - Retry button when the panel cannot reach the extension.
@@ -26,4 +29,5 @@
 - ESLint, coverage, release and Dependabot workflows, SECURITY.md, PRIVACY.md, CONTRIBUTING.md.
 
 ### Changed
+- The on-page pill and accent border are opt-in again. Site access is an optional permission requested when you turn a feature on, and removed when you turn both off. The content script is registered only while a feature is on.
 - Page indicator internals renamed from "workspaces" to "tabroost". Export files are labeled `tabroost`; the old label is still accepted on import.

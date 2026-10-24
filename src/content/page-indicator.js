@@ -156,6 +156,14 @@
     if (key === lastKey && host?.isConnected) return;
     lastKey = key;
 
+    if (!data?.showPill && !data?.showBorder) {
+      closeFlyout();
+      host?.remove();
+      host = null;
+      shadow = null;
+      return;
+    }
+
     ensureHost();
     const color = isWorkspace ? (COLORS[ws?.color] || '#9aa0a6') : '#9aa0a6';
     const border = shadow.querySelector('.border');
@@ -163,7 +171,8 @@
     border.style.background = color;
 
     const pill = shadow.querySelector('.pill');
-    pill.style.display = 'flex'; // Permanent indicator
+    pill.style.display = data?.showPill ? 'flex' : 'none';
+    if (!data?.showPill) closeFlyout();
 
     // Apply positioning and size classes
     pill.className = `pill pos-${pos} size-${size}${isWorkspace ? '' : ' unsaved'}${flyout ? ' open' : ''}`;

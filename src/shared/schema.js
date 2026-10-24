@@ -163,7 +163,6 @@ export function sanitizeSettings(raw = {}) {
   if (!['compact', 'medium', 'large', 'xlarge'].includes(settings.pillSize)) {
     settings.pillSize = 'medium';
   }
-  settings.showPagePill = true;
   return settings;
 }
 
