@@ -155,6 +155,6 @@ export async function decryptPayload(envelope, passphrase) {
     const jsonString = decoder.decode(decryptedBuffer);
     return JSON.parse(jsonString);
   } catch (err) {
-    throw new Error('Decryption failed: incorrect passphrase or corrupted payload');
+    throw new Error('Decryption failed: incorrect passphrase or corrupted payload', { cause: err });
   }
 }

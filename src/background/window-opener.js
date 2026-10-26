@@ -78,7 +78,7 @@ export const windowOpener = {
 
     // 3. Suppress sync during restore to avoid thrashing
     await windowRegistry.setSuppressSync(true);
-    let winId = null;
+    let winId;
 
     try {
       const tabs = ws.tabs.length > 0 ? ws.tabs : [{ id: null, url: NEW_TAB_URL, pinned: false, active: true }];

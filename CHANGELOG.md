@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.0
+
+### Security
+- The message router now checks who is asking. Content scripts (which run beside web pages) can only read the page indicator and save the pill position; every other command must come from an extension page. A sender without this extension's id is rejected.
+- Cloud sync only accepts plain hex Gist IDs, so a tampered setting can no longer redirect requests. A truncated Gist is only read from `gist.githubusercontent.com` or `api.github.com` over HTTPS, so the token is never sent anywhere else.
+- Explicit extension-page Content Security Policy (`script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`).
+- Backup ids are escaped before they reach the options page markup.
+- Decryption errors keep their cause for easier debugging.
+- CodeQL scanning runs on every push and weekly.
+
+### Changed
+- Dev tooling upgraded: ESLint 10, c8 12, GitHub Actions `checkout` v7. CI now runs on Node 20, 22 and 24. Minimum Node for development is 20.19.
+- Added `test/security.test.mjs` (sender policy, Gist ID and URL checks).
+
+### Fixed
+- Removed an unused variable in the page indicator and two dead assignments that ESLint 10 flags.
+
 ## 1.3.0
 
 ### Added

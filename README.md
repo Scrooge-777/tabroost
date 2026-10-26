@@ -6,6 +6,8 @@
 Edge-style workspaces for Brave, Chrome, Edge and other Chromium browsers: one window per project, saved tabs and tab groups, instant switching.
 
 [![CI](https://github.com/Scrooge-777/tabroost/actions/workflows/ci.yml/badge.svg)](https://github.com/Scrooge-777/tabroost/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Scrooge-777/tabroost)](https://github.com/Scrooge-777/tabroost/releases/latest)
+[![CodeQL](https://github.com/Scrooge-777/tabroost/actions/workflows/codeql.yml/badge.svg)](https://github.com/Scrooge-777/tabroost/actions/workflows/codeql.yml)
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4)
 ![Chrome / Brave 116+](https://img.shields.io/badge/Chrome%20%2F%20Brave-116%2B-FB542B)
 ![No tracking](https://img.shields.io/badge/data-stays%20on%20your%20device-2ea44f)
@@ -25,6 +27,20 @@ Too many tabs, all mixed together: school next to side projects next to shopping
 
 Close the window when you're done. Reopen the workspace next week and every tab, pinned tab, tab group (with its name, color and collapsed state) and the window size come back exactly as they were.
 
+## How is this different from tab groups?
+
+Chrome's tab groups are labels on tabs inside one shared window, and they are gone when the window closes. A Tabroost workspace is a separate, saved context.
+
+| | Plain tab groups | Typical cloud tab managers | **Tabroost** |
+|---|---|---|---|
+| Separate window per project | No | Sometimes | **Yes** |
+| Survives closing the window or a crash | No | Yes | **Yes** (auto-saved, versioned) |
+| Saves native tab groups (name, color, collapsed) | n/a | Rarely | **Yes** |
+| Account or server needed | No | Usually | **No** |
+| Where your data lives | Browser | Their servers | **Your browser** (optional encrypted sync to your own Gist) |
+| Undo, backups and history | No | Varies | **Yes** |
+| Price | Free | Free tier with limits | **Free, MIT** |
+
 ## Features
 
 | | |
@@ -43,18 +59,22 @@ Close the window when you're done. Reopen the workspace next week and every tab,
 
 ## Install
 
-Tabroost isn't on the Chrome Web Store yet, so install it unpacked:
+Tabroost isn't on the Chrome Web Store yet, so install it unpacked. Pick one:
 
-1. Clone the repo, or download the ZIP from GitHub and extract it:
-   ```bash
-   git clone https://github.com/Scrooge-777/tabroost.git
-   ```
-2. Open `brave://extensions` (or `chrome://extensions`).
-3. Turn on **Developer mode**.
-4. Click **Load unpacked** and select the folder that contains `manifest.json`.
-5. Pin **Tabroost** to the toolbar.
+**From a release (easiest)**
 
-To update later, run `git pull` and click the reload button on the extension's card.
+1. Download `tabroost-v<version>.zip` from the [latest release](https://github.com/Scrooge-777/tabroost/releases/latest) and extract it.
+2. Open `brave://extensions` (or `chrome://extensions`) and turn on **Developer mode**.
+3. Click **Load unpacked** and select the extracted folder (the one with `manifest.json`).
+4. Pin **Tabroost** to the toolbar.
+
+**From source**
+
+```bash
+git clone https://github.com/Scrooge-777/tabroost.git
+```
+
+Then follow steps 2 to 4 above. To update later, run `git pull` and click the reload button on the extension's card.
 
 ## Quick start
 
@@ -205,6 +225,19 @@ flowchart TB
 - **On web pages:** workspace pill and accent border (both off by default)
 - **Backups**, **export / import**, and **reset everything** (a backup is taken first)
 
+## Security
+
+Tabroost handles your browsing session, so the code is written to trust as little as possible:
+
+- **Least privilege.** No website access by default. Host permissions are optional and requested only for the page indicator.
+- **Sender checks.** The service worker accepts commands only from this extension. Content scripts, which sit next to web pages, can use just two of them (read the indicator, save the pill position). Export, import, reset, sync and delete are limited to extension pages.
+- **No remote code.** No `eval`, no remote scripts, and an explicit extension-page CSP (`script-src 'self'`).
+- **Escaped output.** Every workspace name, tab title and note is escaped before it reaches the page.
+- **Sync hardening.** End-to-end encrypted (AES-256-GCM, PBKDF2 with 600,000 iterations). The GitHub token is only sent to GitHub over HTTPS, and Gist IDs are validated before they are used in a URL.
+- **Checked in CI.** ESLint, the test suite, `npm audit`, CodeQL and Dependabot run on every change.
+
+Found something? See [SECURITY.md](SECURITY.md) for private reporting.
+
 ## Privacy
 
 - Everything stays in your browser's local extension storage. There is no analytics and no server of ours.
@@ -213,6 +246,35 @@ flowchart TB
 - See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 - No website access by default. The optional page indicator asks for permission only when you turn it on, and turning it off removes it.
 - Permissions used: `tabs`, `tabGroups`, `storage`, `unlimitedStorage`, `sidePanel`, `favicon`, `contextMenus`, `alarms`, `scripting`.
+
+## FAQ
+
+**Will I lose tabs if the browser crashes?**
+Changes are saved within half a second, and Tabroost keeps up to 10 automatic backups plus per-workspace history. After a restart the panel offers to reopen the workspaces that were open.
+
+**Does it work in Firefox or Safari?**
+No. It needs Manifest V3 and the side panel API (Chrome 116+, Brave, Edge, Opera).
+
+**Do I need an account?**
+No. Cloud sync is optional and uses a private Gist in your own GitHub account.
+
+**Can I move my workspaces to another computer?**
+Yes: turn on Cloud Sync, or use JSON export and import (merge or replace).
+
+**Why does the page pill ask for site access?**
+It draws a small badge on web pages, which needs permission to run there. It is off by default and turning it off removes it.
+
+## Roadmap
+
+Ideas under consideration, in no fixed order:
+
+- Chrome Web Store and Edge Add-ons listing
+- Auto-suspend tabs in closed-looking workspaces to save memory
+- Workspace-specific bookmarks or pinned links
+- Drag a tab straight onto a workspace in the panel to move it
+- Import from other tab managers (OneTab, Session Buddy)
+
+Have a request? [Open an issue](https://github.com/Scrooge-777/tabroost/issues/new/choose).
 
 ## Project layout
 
@@ -224,7 +286,7 @@ src/
 ├── sidepanel/        Panel, popup and flyout UI (one app, three modes) + components
 ├── options/          Settings page
 └── shared/           Constants, schema and migration, colors, utilities
-test/                 Unit tests (chrome.* mock) and real-browser smoke tests
+test/                 Unit, sync and security tests (chrome.* mock) and real-browser smoke tests
 docs/                 Screenshots and the how-it-works canvas
 ```
 
@@ -233,7 +295,7 @@ docs/                 Screenshots and the how-it-works canvas
 No build step. Edit the files, then click reload on the extension card.
 
 ```bash
-npm test                 # import, call-contract and version checks, logic and sync tests against a chrome.* mock
+npm test                 # import, call-contract and version checks, logic, sync and security tests against a chrome.* mock
 npm run lint             # ESLint
 npm run coverage         # tests with c8 coverage
 npm run pack             # build dist/tabroost-v<version>.zip
@@ -247,7 +309,7 @@ See [`test/manual-checklist.md`](test/manual-checklist.md) for the hands-on test
 
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Please run `npm run lint` and `npm test` before opening a PR. CI runs both on every push.
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Please run `npm run lint` and `npm test` before opening a PR (Node 20.19 or newer). CI runs both on Node 20, 22 and 24 on every push.
 
 ## License
 

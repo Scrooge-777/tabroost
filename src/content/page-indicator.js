@@ -26,7 +26,6 @@
   let flyout = null;
   let lastKey = '';
   let currentPosition = 'top-left';
-  let currentSize = 'medium';
   let currentStyle = 'handle';
   let currentOffsetY = null;
   let currentOffsetX = null;
@@ -338,7 +337,6 @@
     const pos = data?.pillPosition || 'top-left';
     const size = data?.pillSize || 'medium';
     currentPosition = pos;
-    currentSize = size;
 
     const style = data?.pillStyle === 'dot' ? 'dot' : 'handle';
     if (style !== currentStyle) closeFlyout();

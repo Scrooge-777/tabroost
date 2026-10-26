@@ -225,7 +225,7 @@ class OptionsApp {
 
   async renderBackups() {
     const list = document.getElementById('backup-list');
-    let items = [];
+    let items;
     try {
       items = (await sendBackgroundMessage(MESSAGE_TYPES.LIST_BACKUPS)) || [];
     } catch {
@@ -246,7 +246,7 @@ class OptionsApp {
         const reason = REASONS[b.reason] || b.reason;
         const count = pluralize(b.workspaceCount, 'workspace');
         return `
-          <li class="backup-row" data-id="${b.id}">
+          <li class="backup-row" data-id="${escapeHtml(b.id)}">
             <span class="backup-meta">
               <span class="backup-time">${escapeHtml(time)}</span>
               <span class="backup-reason">${escapeHtml(reason)} · ${count}</span>

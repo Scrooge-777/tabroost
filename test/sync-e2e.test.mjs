@@ -57,7 +57,7 @@ function fakeGistServer() {
       if (auth !== `Bearer ${TOKEN}`) return json(401, { message: 'Bad credentials' });
 
       if (method === 'POST' && url.endsWith('/gists')) {
-        const id = `gist${Object.keys(server.gists).length + 1}`;
+        const id = String(Object.keys(server.gists).length + 1).padStart(32, 'a');
         server.gists[id] = { files: JSON.parse(options.body).files, updated_at: `t${server.clock++}` };
         return json(201, { id });
       }

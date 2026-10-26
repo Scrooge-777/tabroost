@@ -24,11 +24,36 @@ import { validateImportPayload, sanitizeWorkspace } from '../shared/schema.js';
 import { generateId } from '../shared/utils.js';
 import { setSyncSecrets, applyRememberChoice, clearSyncSecrets } from '../shared/secrets.js';
 
+// Content scripts run next to untrusted web pages, so they only get the commands the
+// page indicator needs. Everything else must come from an extension page.
+const CONTENT_SCRIPT_TYPES = new Set([
+  MESSAGE_TYPES.GET_PAGE_INDICATOR,
+  MESSAGE_TYPES.UPDATE_SETTINGS
+]);
+const CONTENT_SCRIPT_SETTING_KEYS = new Set(['pillOffsetX', 'pillOffsetY']);
+
+/**
+ * Decide whether a sender may send this message. Extension pages (panel, popup,
+ * options, flyout) are trusted; content scripts are limited to an allowlist.
+ */
+export function isSenderAllowed(message, sender = {}, extensionId = chrome.runtime.id, extensionOrigin = chrome.runtime.getURL('')) {
+  if (sender.id !== extensionId) return false;
+  if (!sender.url || sender.url.startsWith(extensionOrigin)) return true;
+  if (!CONTENT_SCRIPT_TYPES.has(message.type)) return false;
+  if (message.type === MESSAGE_TYPES.UPDATE_SETTINGS) {
+    const keys = Object.keys(message.settings || {});
+    return keys.length > 0 && keys.every((k) => CONTENT_SCRIPT_SETTING_KEYS.has(k));
+  }
+  return true;
+}
+
 export function registerMessageRouter() {
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // Only accept messages from this extension's own pages and scripts
-    if (sender?.id && sender.id !== chrome.runtime.id) return false;
     if (!message || !message.type || BROADCAST_TYPES.has(message.type)) return false;
+    if (!isSenderAllowed(message, sender)) {
+      console.warn('router: rejected', message.type, 'from', sender?.url || sender?.id);
+      return false;
+    }
 
     handleMessage(message, sender)
       .then((data) => {

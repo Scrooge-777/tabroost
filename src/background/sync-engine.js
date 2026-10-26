@@ -51,9 +51,28 @@ function parseRetryAfter(res) {
   return 0;
 }
 
+const GIST_ID_PATTERN = /^[0-9a-f]{20,40}$/i;
+const GIST_RAW_HOSTS = new Set(['gist.githubusercontent.com', 'api.github.com']);
+
+/** Gist IDs go straight into request URLs, so only plain hex IDs are accepted */
+export function isValidGistId(id) {
+  return typeof id === 'string' && GIST_ID_PATTERN.test(id);
+}
+
+/** The token is only ever sent to GitHub over HTTPS, even when following raw_url */
+export function isTrustedGistUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && GIST_RAW_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export class GistAdapter {
   constructor(token, gistId = '', fetchImpl = (...args) => globalThis.fetch(...args)) {
     this.token = token;
+    if (gistId && !isValidGistId(gistId)) throw new SyncHttpError('The saved Gist ID is not valid. Clear it in Settings.');
     this.gistId = gistId;
     this.fetchImpl = fetchImpl;
   }
@@ -112,6 +131,7 @@ export class GistAdapter {
 
     let content = file.content;
     if (file.truncated && file.raw_url) {
+      if (!isTrustedGistUrl(file.raw_url)) throw new SyncHttpError('Refusing to read the Gist from an untrusted address');
       const raw = await this.fetchImpl(file.raw_url, { headers: { Authorization: `Bearer ${this.token}` } });
       if (!raw.ok) throw new SyncHttpError(`Could not read the full Gist file: HTTP ${raw.status}`, { status: raw.status });
       content = await raw.text();
