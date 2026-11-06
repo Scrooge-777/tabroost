@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.0
+## 1.4.0 — 2026-10-26
 
 ### Security
 - The message router now checks who is asking. Content scripts (which run beside web pages) can only read the page indicator and save the pill position; every other command must come from an extension page. A sender without this extension's id is rejected.

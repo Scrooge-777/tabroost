@@ -10,3 +10,8 @@ dist/
 *.zip
 coverage/
 .nyc_output/
+.env
+.env.*
+*.key
+*.p12
+*.pfx
