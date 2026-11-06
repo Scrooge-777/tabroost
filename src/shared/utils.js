@@ -146,7 +146,8 @@ export function isRestrictedUrl(url) {
     lower.startsWith('view-source:') ||
     lower.startsWith('file://') ||
     lower.startsWith('javascript:') ||
-    lower.startsWith('data:')
+    lower.startsWith('data:') ||
+    lower.startsWith('vbscript:')
   );
 }
 
